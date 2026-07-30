@@ -111,6 +111,7 @@ shared host or set the Turso variables.
 | `transactions` | The ledger, including closure payouts |
 | `applications` | Account-opening requests and their review decisions |
 | `closureRequests` | Account-closing requests and their review decisions |
+| `transfers` | Money moved to another account here or at another bank |
 | `audit` | Chronological record of every state change |
 
 Useful knobs:
@@ -121,8 +122,10 @@ Useful knobs:
 - `BANKING_ACCESS_CODE` - require a shared code; unset means open
 - `BANKING_API_URL` - where `npm run dev` proxies `/api` to
 
-"Reset demo data" in the app (or `POST /api/reset`) restores the seed data for **everyone**
-sharing that database.
+The seed data is loaded once, when the database is empty. There is no in-app reset:
+the database is shared, so wiping it is not something a single tester should be able to
+do by accident. To start over, delete the local file (or drop the Turso database) and
+restart the server.
 
 ## API
 
@@ -132,9 +135,9 @@ sharing that database.
 | `POST` | `/api/applications` | Submit an account-opening application |
 | `POST` | `/api/applications/:id/decision` | Approve / reject / request info |
 | `POST` | `/api/transactions` | Post a teller transaction |
+| `POST` | `/api/transfers` | Transfer funds to this bank or another bank |
 | `POST` | `/api/closure-requests` | Submit an account-closure request |
 | `POST` | `/api/closure-requests/:id/decision` | Approve / reject / request info |
-| `POST` | `/api/reset` | Restore seed data |
 | `GET` | `/api/health` | Liveness plus which database file is in use |
 
 Every mutation replies with `{ state }` - the freshly re-read dataset - so the UI never
@@ -158,6 +161,13 @@ Closing the tab ends the session, and signing out clears it immediately.
 **Opening an account.** Applicant submits an application -> reviewer approves -> a customer
 record and an account are created (`Pending Funding`) -> teller posts the opening deposit ->
 account becomes `Active`.
+
+**Transferring money.** Account holder opens **Transfer Funds** and chooses a destination
+at this bank or at another bank. A same-bank transfer debits the sender and credits the
+recipient in one database transaction, so the ledger always balances. Money going to
+another bank is a single debit - the extra beneficiary, bank, and routing details are
+required and stored against the transfer. Both are blocked by insufficient balance, and
+a closed account can neither send nor receive.
 
 **Closing an account.** Account holder submits a closure request from **Close Account**
 (reason, payout method, confirmation) -> reviewer opens it under **Closure Requests** ->

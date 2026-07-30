@@ -34,6 +34,7 @@ export const columns = {
   accounts: ["accountNumber", "customerId", "ownerUsername", "accountType", "status", "branch", "openedAt", "closedAt", "currentBalance", "availableBalance"],
   transactions: ["id", "accountNumber", "type", "direction", "amount", "balanceAfter", "description", "status", "createdBy", "createdAt"],
   closureRequests: ["id", "accountNumber", "customerId", "ownerUsername", "accountHolder", "reason", "details", "payoutMethod", "payoutReference", "status", "submittedAt", "reviewer", "reviewerComments", "decisionAt", "closingBalance", "payoutTransactionId"],
+  transfers: ["id", "fromAccountNumber", "transferType", "toAccountNumber", "beneficiaryName", "bankName", "routingNumber", "amount", "description", "status", "createdBy", "createdAt", "debitTransactionId", "creditTransactionId"],
   audit: ["at", "actor", "action"]
 };
 
@@ -93,10 +94,11 @@ export async function readState() {
     "SELECT * FROM accounts ORDER BY accountNumber",
     "SELECT * FROM transactions ORDER BY createdAt",
     "SELECT * FROM closureRequests ORDER BY submittedAt",
+    "SELECT * FROM transfers ORDER BY createdAt",
     "SELECT at, actor, action FROM audit ORDER BY id"
   ], "read");
-  const [customers, applications, accounts, transactions, closureRequests, audit] = results.map(toRows);
-  return { customers, applications, accounts, transactions, closureRequests, audit };
+  const [customers, applications, accounts, transactions, closureRequests, transfers, audit] = results.map(toRows);
+  return { customers, applications, accounts, transactions, closureRequests, transfers, audit };
 }
 
 /** `APP-00007` style reference built from the highest digits already stored. */
@@ -106,10 +108,10 @@ export async function nextReference(executor, prefix, table, column = "id") {
   return `${prefix}-${String(max + 1).padStart(5, "0")}`;
 }
 
-export async function resetDatabase() {
+async function seedDatabase() {
   const tx = await db.transaction("write");
   try {
-    for (const table of ["audit", "closureRequests", "transactions", "accounts", "applications", "customers"]) {
+    for (const table of ["audit", "transfers", "closureRequests", "transactions", "accounts", "applications", "customers"]) {
       await tx.execute(`DELETE FROM ${table}`);
     }
     await tx.execute("DELETE FROM sqlite_sequence WHERE name = 'audit'");
@@ -118,6 +120,7 @@ export async function resetDatabase() {
     for (const account of seedData.accounts) await insertRow(tx, "accounts", account);
     for (const transaction of seedData.transactions) await insertRow(tx, "transactions", transaction);
     for (const request of seedData.closureRequests) await insertRow(tx, "closureRequests", request);
+    for (const transfer of seedData.transfers) await insertRow(tx, "transfers", transfer);
     for (const entry of seedData.audit) await insertRow(tx, "audit", entry);
     await tx.commit();
   } catch (error) {
@@ -135,7 +138,7 @@ export function ensureReady() {
     readyPromise = (async () => {
       await db.executeMultiple(schema);
       const [{ count }] = await query(db, "SELECT COUNT(*) AS count FROM applications");
-      if (Number(count) === 0) await resetDatabase();
+      if (Number(count) === 0) await seedDatabase();
     })().catch((error) => {
       readyPromise = undefined; // let the next request retry instead of caching the failure
       throw error;

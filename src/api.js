@@ -66,10 +66,10 @@ async function request(path, body) {
 
 export const api = {
   getState: () => request("/state"),
-  reset: () => request("/reset", {}),
   createApplication: (form, actor) => request("/applications", { form, actor }),
   decideApplication: (id, decision, comments, reviewer) => request(`/applications/${id}/decision`, { decision, comments, reviewer }),
   postTransaction: (transaction) => request("/transactions", transaction),
+  createTransfer: (form, actor) => request("/transfers", { form, actor }),
   createClosureRequest: (form, actor) => request("/closure-requests", { form, actor }),
   decideClosureRequest: (id, decision, comments, reviewer) => request(`/closure-requests/${id}/decision`, { decision, comments, reviewer })
 };

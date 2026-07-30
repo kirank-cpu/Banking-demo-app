@@ -104,6 +104,23 @@ CREATE TABLE IF NOT EXISTS closureRequests (
   payoutTransactionId TEXT DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS transfers (
+  id                  TEXT PRIMARY KEY,
+  fromAccountNumber   TEXT NOT NULL REFERENCES accounts(accountNumber),
+  transferType        TEXT NOT NULL,
+  toAccountNumber     TEXT NOT NULL,
+  beneficiaryName     TEXT DEFAULT '',
+  bankName            TEXT DEFAULT '',
+  routingNumber       TEXT DEFAULT '',
+  amount              REAL NOT NULL,
+  description         TEXT DEFAULT '',
+  status              TEXT NOT NULL,
+  createdBy           TEXT,
+  createdAt           TEXT NOT NULL,
+  debitTransactionId  TEXT DEFAULT '',
+  creditTransactionId TEXT DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS audit (
   id     INTEGER PRIMARY KEY AUTOINCREMENT,
   at     TEXT NOT NULL,
@@ -114,4 +131,5 @@ CREATE TABLE IF NOT EXISTS audit (
 CREATE INDEX IF NOT EXISTS idxTransactionsAccount ON transactions(accountNumber);
 CREATE INDEX IF NOT EXISTS idxAccountsCustomer    ON accounts(customerId);
 CREATE INDEX IF NOT EXISTS idxClosureAccount      ON closureRequests(accountNumber);
+CREATE INDEX IF NOT EXISTS idxTransfersFrom        ON transfers(fromAccountNumber);
 `;

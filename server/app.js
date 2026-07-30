@@ -1,8 +1,8 @@
 import express from "express";
 import cors from "cors";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { addAudit, db, describeDatabase, ensureReady, insertRow, isRemote, nextReference, query, queryOne, readState, resetDatabase, updateRow } from "./db.js";
-import { debitTypes, openClosureStatuses, transactionTypes, validateApplication, validateClosureRequest } from "./rules.js";
+import { addAudit, db, describeDatabase, ensureReady, insertRow, isRemote, nextReference, query, queryOne, readState, updateRow } from "./db.js";
+import { debitTypes, openClosureStatuses, transactionTypes, validateApplication, validateClosureRequest, validateTransfer } from "./rules.js";
 
 /**
  * Routes live on a Router, mounted rather than hard-coded at /api, so the same
@@ -99,11 +99,6 @@ apiRouter.get("/health", async (request, response, next) => {
 });
 
 apiRouter.get("/state", handle(() => ({})));
-
-apiRouter.post("/reset", handle(async () => {
-  await resetDatabase();
-  return { message: "Demo data reset." };
-}));
 
 apiRouter.post("/applications", handle(async (request) => {
   const { form = {}, actor = {} } = request.body || {};
@@ -221,6 +216,91 @@ apiRouter.post("/transactions", handle(async (request) => {
     });
     await addAudit(tx, now, createdBy, `${type} ${transaction.id} posted to account ${account.accountNumber}`);
     return { transaction };
+  });
+}));
+
+apiRouter.post("/transfers", handle(async (request) => {
+  const { form = {}, actor = {} } = request.body || {};
+  const now = new Date().toISOString();
+
+  return inTransaction(async (tx) => {
+    const account = await queryOne(tx, "SELECT * FROM accounts WHERE accountNumber = ?", [String(form.fromAccountNumber || "")]);
+    const accounts = await query(tx, "SELECT accountNumber, status FROM accounts");
+    const problem = validateTransfer(form, account, accounts);
+    if (problem) throw new RequestError(problem);
+
+    const amount = Number(form.amount);
+    const destination = String(form.toAccountNumber).trim();
+    const sameBank = form.transferType === "Same bank";
+    const createdBy = actor.name || actor.username || "Customer";
+    const reference = await nextReference(tx, "TRF", "transfers");
+    const note = String(form.description || "").trim();
+
+    // Debit the sender first; the balance check above ran against this same row
+    // inside the transaction, so it cannot have moved underneath us.
+    const debitBalance = account.currentBalance - amount;
+    const debit = {
+      id: await nextReference(tx, "TXN", "transactions"),
+      accountNumber: account.accountNumber,
+      type: sameBank ? "Internal Transfer" : "External Transfer",
+      direction: "Debit",
+      amount,
+      balanceAfter: debitBalance,
+      description: note || `Transfer ${reference} to ${sameBank ? `account ${destination}` : `${form.beneficiaryName} at ${form.bankName}`}`,
+      status: "Completed",
+      createdBy,
+      createdAt: now
+    };
+    await insertRow(tx, "transactions", debit);
+    await updateRow(tx, "accounts", "accountNumber", account.accountNumber, { currentBalance: debitBalance, availableBalance: debitBalance });
+
+    // A same-bank transfer credits the other side in the same transaction, so the
+    // ledger balances. Money leaving for another bank has no second row here.
+    let creditTransactionId = "";
+    if (sameBank) {
+      const target = await queryOne(tx, "SELECT * FROM accounts WHERE accountNumber = ?", [destination]);
+      const creditBalance = target.currentBalance + amount;
+      const credit = {
+        id: await nextReference(tx, "TXN", "transactions"),
+        accountNumber: target.accountNumber,
+        type: "Internal Transfer",
+        direction: "Credit",
+        amount,
+        balanceAfter: creditBalance,
+        description: note || `Transfer ${reference} from account ${account.accountNumber}`,
+        status: "Completed",
+        createdBy,
+        createdAt: now
+      };
+      await insertRow(tx, "transactions", credit);
+      await updateRow(tx, "accounts", "accountNumber", target.accountNumber, {
+        currentBalance: creditBalance,
+        availableBalance: creditBalance,
+        status: target.status === "Pending Funding" && creditBalance > 0 ? "Active" : target.status
+      });
+      creditTransactionId = credit.id;
+    }
+
+    const transfer = {
+      id: reference,
+      fromAccountNumber: account.accountNumber,
+      transferType: form.transferType,
+      toAccountNumber: destination,
+      beneficiaryName: sameBank ? "" : String(form.beneficiaryName).trim(),
+      bankName: sameBank ? "QA's Trust Bank" : String(form.bankName).trim(),
+      routingNumber: sameBank ? "" : String(form.routingNumber).trim(),
+      amount,
+      description: note,
+      status: "Completed",
+      createdBy,
+      createdAt: now,
+      debitTransactionId: debit.id,
+      creditTransactionId
+    };
+    await insertRow(tx, "transfers", transfer);
+    await addAudit(tx, now, createdBy, `Transfer ${reference} of ${amount} from account ${account.accountNumber} to ${sameBank ? `account ${destination}` : `${destination} at ${transfer.bankName}`}`);
+
+    return { id: reference, transfer };
   });
 }));
 
