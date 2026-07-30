@@ -109,6 +109,7 @@ export const seedData = {
     { id: "TXN-900003", accountNumber: "8001200101", type: "Service Fee", direction: "Debit", amount: 25, balanceAfter: 1725, description: "Monthly account fee", status: "Completed", createdBy: "System", createdAt: "2026-06-18T03:00:00.000Z" }
   ],
   closureRequests: [],
+  transfers: [],
   audit: [
     { at: "2026-06-10T10:12:00.000Z", actor: "Priya Nair", action: "Application APP-24001 submitted" },
     { at: "2026-06-11T09:30:00.000Z", actor: "Mina Patel", action: "Application APP-24001 approved and account 8001200101 created" },

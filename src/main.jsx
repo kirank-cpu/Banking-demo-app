@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
+  ArrowLeftRight,
   BadgeDollarSign,
   Ban,
   Banknote,
@@ -14,13 +15,12 @@ import {
   LogOut,
   Plus,
   RefreshCw,
-  RotateCcw,
   ShieldCheck,
   UserRound,
   XCircle
 } from "lucide-react";
 import { api, clearAccessCode, setAccessCode } from "./api.js";
-import { accountTypes, branches, closureReasons, payoutMethods, transactionTypes, validateApplication, validateClosureRequest } from "../server/rules.js";
+import { accountTypes, branches, closureReasons, payoutMethods, tellerTransactionTypes, transactionTypes, transferTypes, validateApplication, validateClosureRequest, validateTransfer } from "../server/rules.js";
 import "../styles.css";
 import "./react.css";
 
@@ -36,7 +36,7 @@ const navByRole = {
   applicant: [["dashboard", "Overview", Home], ["apply", "New Application", Plus], ["myApplications", "My Applications", ClipboardList]],
   reviewer: [["dashboard", "Review Queue", FileCheck2], ["applications", "Applications", ClipboardList], ["closures", "Closure Requests", FileX2], ["audit", "Audit Trail", CheckCircle2]],
   teller: [["dashboard", "Operations", Home], ["funding", "Fund Account", BadgeDollarSign], ["transactions", "Transactions", CircleDollarSign]],
-  customer: [["dashboard", "Accounts", Landmark], ["transactions", "Transactions", CircleDollarSign], ["closeAccount", "Close Account", Ban], ["profile", "Profile", UserRound]],
+  customer: [["dashboard", "Accounts", Landmark], ["transfer", "Transfer Funds", ArrowLeftRight], ["transactions", "Transactions", CircleDollarSign], ["closeAccount", "Close Account", Ban], ["profile", "Profile", UserRound]],
   admin: [["dashboard", "Control Center", Home], ["applications", "Applications", ClipboardList], ["closures", "Closure Requests", FileX2], ["accounts", "Accounts", Landmark], ["transactions", "Transactions", CircleDollarSign], ["audit", "Audit Trail", CheckCircle2]]
 };
 
@@ -168,8 +168,8 @@ function App() {
     return name || user.name;
   }, [user, data, customerAccountNumber]);
 
-  // A restored account-holder session can outlive its account - most often when a
-  // teammate resets the shared demo data. Sign out rather than show empty screens.
+  // A restored account-holder session can outlive its account. Sign out rather
+  // than leave the holder staring at empty screens.
   useEffect(() => {
     if (!data || !user || user.role !== "customer" || !customerAccountNumber) return;
     if (data.accounts.some((account) => account.accountNumber === customerAccountNumber)) return;
@@ -205,18 +205,6 @@ function App() {
     });
   }
 
-  async function resetDemo() {
-    try {
-      const result = await api.reset();
-      apply(result.state);
-      setSelectedApplicationId(null);
-      setSelectedClosureId(null);
-      notify("Demo data reset.");
-    } catch (error) {
-      notify(error.message);
-    }
-  }
-
   if (needsAccessCode) return <AccessGate onSubmit={submitAccessCode} error={accessCodeError} busy={checkingAccessCode} />;
   if (loadError && !data) return <ConnectionError message={loadError} onRetry={reload} />;
   if (!data) return <LoadingScreen />;
@@ -242,8 +230,7 @@ function App() {
     selectedAccountNumber,
     setSelectedAccountNumber,
     notify,
-    setModal,
-    resetDemo
+    setModal
   };
 
   return (
@@ -430,6 +417,7 @@ function CurrentView(props) {
   if (props.view === "apply") return <ApplicationForm {...props} />;
   if (props.view === "myApplications") return <Applications {...props} onlyMine />;
   if (props.view === "applications") return <Applications {...props} />;
+  if (props.view === "transfer") return <TransferFunds {...props} />;
   if (props.view === "closeAccount") return <CloseAccount {...props} />;
   if (props.view === "closures") return <ClosureRequests {...props} />;
   if (props.view === "funding") return <Funding {...props} />;
@@ -448,7 +436,7 @@ function Metric({ label, value, testId }) {
   return <article className="metric" data-testid={testId}><div className="metric-label">{label}</div><div className="metric-value">{value}</div></article>;
 }
 
-function Dashboard({ user, data, setView, resetDemo, customerAccountNumber }) {
+function Dashboard({ user, data, setView, customerAccountNumber }) {
   if (user.role === "customer") return <CustomerDashboard user={user} data={data} customerAccountNumber={customerAccountNumber} />;
   if (user.role === "applicant") {
     const mine = data.applications.filter((app) => app.ownerUsername === user.username);
@@ -484,7 +472,7 @@ function Dashboard({ user, data, setView, resetDemo, customerAccountNumber }) {
         </section>
       )}
       <section className="panel stack-top">
-        <div className="toolbar"><h2>Recent activity</h2><button className="btn secondary" data-testid="reset-demo" onClick={resetDemo}><RotateCcw size={17} /> Reset demo data</button></div>
+        <h2>Recent activity</h2>
         <AuditList audit={data.audit.slice(-5).reverse()} />
       </section>
     </>
@@ -707,6 +695,132 @@ function ApplicationDetail({ user, apply, application, setModal, setSelectedAppl
         </div>
       ) : <p className="muted stack-top">Reviewer comments: {application.reviewerComments || "None"}</p>}
     </section>
+  );
+}
+
+const emptyTransfer = { transferType: "Same bank", toAccountNumber: "", beneficiaryName: "", bankName: "", routingNumber: "", amount: "", description: "", confirm: false };
+
+function TransferFunds({ user, data, apply, customerAccountNumber, notify, setModal }) {
+  const accounts = ownedAccounts(data, user, customerAccountNumber);
+  const usable = accounts.filter((account) => account.status !== "Closed");
+  const [fromAccountNumber, setFromAccountNumber] = useState(usable[0]?.accountNumber || "");
+  const [form, setForm] = useState(emptyTransfer);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const set = (field, value) => setForm((current) => ({ ...current, [field]: value }));
+
+  const selectedNumber = usable.some((item) => item.accountNumber === fromAccountNumber) ? fromAccountNumber : usable[0]?.accountNumber || "";
+  const account = data.accounts.find((item) => item.accountNumber === selectedNumber);
+  const sameBank = form.transferType === "Same bank";
+
+  const accountNumbers = accounts.map((item) => item.accountNumber);
+  const myTransfers = data.transfers
+    .filter((transfer) => accountNumbers.includes(transfer.fromAccountNumber) || accountNumbers.includes(transfer.toAccountNumber))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  function submit(event) {
+    event.preventDefault();
+    const payload = { ...form, fromAccountNumber: selectedNumber, amount: Number(form.amount) };
+    const validation = validateTransfer(payload, account, data.accounts);
+    if (validation) {
+      setError(validation);
+      return;
+    }
+    setModal({
+      title: "Confirm transfer",
+      body: `Send ${money(payload.amount)} from account ${selectedNumber} to ${sameBank ? `account ${payload.toAccountNumber} at this bank` : `${payload.beneficiaryName} (${payload.bankName}, account ${payload.toAccountNumber})`}. This cannot be undone.`,
+      confirmText: "Send transfer",
+      testId: "transfer-confirm-modal",
+      onConfirm: async () => {
+        setBusy(true);
+        try {
+          const result = await api.createTransfer(payload, { username: user.username, name: user.name });
+          apply(result.state);
+          setError("");
+          setForm(emptyTransfer);
+          setModal({
+            title: "Transfer sent",
+            body: `Transfer ${result.id} of ${money(payload.amount)} completed.${sameBank ? "" : " Funds sent to another bank can take up to two working days to arrive."}`,
+            confirmText: "Done",
+            testId: "transfer-sent-modal",
+            onConfirm: () => setModal(null)
+          });
+          notify(`Transfer ${result.id} completed.`);
+        } catch (transferError) {
+          setModal(null);
+          setError(transferError.message);
+        } finally {
+          setBusy(false);
+        }
+      }
+    });
+  }
+
+  return (
+    <>
+      <PageHead title="Transfer funds" subtitle="Move money to another account at this bank, or out to an account at a different bank." />
+      {usable.length ? (
+        <form className="panel" data-testid="transfer-form" onSubmit={submit}>
+          <div className="form-hint">Required fields are marked with <span className="required-marker">*</span>.</div>
+          <h2>From</h2>
+          <div className="form-grid">
+            <FormSelect label="Account" required options={usable.map((item) => item.accountNumber)} testId="transfer-from-select" value={selectedNumber} onChange={setFromAccountNumber} />
+            <Detail label="Available balance" value={account ? money(account.availableBalance) : "-"} />
+            <Detail label="Account status" value={account ? account.status : "-"} />
+          </div>
+          <h2 className="stack-top">To</h2>
+          <div className="form-grid">
+            <FormSelect label="Destination" required options={transferTypes} testId="transfer-type-select" value={form.transferType} onChange={(v) => set("transferType", v)} />
+            <FormInput label={sameBank ? "Account number at this bank" : "Account number"} required testId="transfer-to-input" value={form.toAccountNumber} onChange={(v) => set("toAccountNumber", v)} />
+            {sameBank ? null : (
+              <>
+                <FormInput label="Beneficiary name" required testId="transfer-beneficiary-input" value={form.beneficiaryName} onChange={(v) => set("beneficiaryName", v)} />
+                <FormInput label="Bank name" required testId="transfer-bank-input" value={form.bankName} onChange={(v) => set("bankName", v)} />
+                <FormInput label="Routing / IFSC code" required testId="transfer-routing-input" value={form.routingNumber} onChange={(v) => set("routingNumber", v)} />
+              </>
+            )}
+          </div>
+          <h2 className="stack-top">Amount</h2>
+          <div className="form-grid">
+            <FormInput label="Amount" required type="number" testId="transfer-amount-input" value={form.amount} onChange={(v) => set("amount", v)} />
+            <FormInput className="span-2" label="Reference for the recipient" testId="transfer-description-input" value={form.description} onChange={(v) => set("description", v)} />
+            <label className="checkbox-row span-3"><input type="checkbox" data-testid="transfer-confirm-checkbox" checked={Boolean(form.confirm)} onChange={(e) => set("confirm", e.target.checked)} /> I have checked the destination details are correct. <span className="required-marker">*</span></label>
+          </div>
+          <p className="error" role="alert">{error}</p>
+          <div className="actions">
+            <button type="button" className="btn secondary" data-testid="clear-transfer" onClick={() => { setForm(emptyTransfer); setError(""); }}>Clear</button>
+            <button className="btn primary" data-testid="submit-transfer" disabled={busy}><ArrowLeftRight size={17} /> {busy ? "Sending..." : "Send transfer"}</button>
+          </div>
+        </form>
+      ) : (
+        <section className="panel"><div className="empty" data-testid="no-transfer-accounts">You have no open accounts available to transfer from.</div></section>
+      )}
+      <section className="panel stack-top">
+        <h2>Recent transfers</h2>
+        <TransfersTable transfers={myTransfers} />
+      </section>
+    </>
+  );
+}
+
+function TransfersTable({ transfers }) {
+  if (!transfers.length) return <div className="empty" data-testid="empty-transfers">No transfers yet.</div>;
+  return (
+    <div className="table-wrap">
+      <table data-testid="transfers-table">
+        <thead><tr><th>Reference</th><th>From</th><th>To</th><th>Amount</th><th>Status</th><th>Date</th></tr></thead>
+        <tbody>{transfers.map((transfer) => (
+          <tr key={transfer.id} data-testid={`transfer-row-${transfer.id}`}>
+            <td><strong>{transfer.id}</strong><br /><span className="muted">{transfer.transferType}</span></td>
+            <td>{transfer.fromAccountNumber}</td>
+            <td>{transfer.toAccountNumber}<br /><span className="muted">{transfer.beneficiaryName ? `${transfer.beneficiaryName} - ${transfer.bankName}` : transfer.bankName}</span></td>
+            <td>{money(transfer.amount)}</td>
+            <td><Status value={transfer.status} /></td>
+            <td>{dateTime(transfer.createdAt)}</td>
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>
   );
 }
 
@@ -968,7 +1082,7 @@ function Funding({ data, apply, selectedAccountNumber, setSelectedAccountNumber,
             <>
               <AccountCard account={account} />
               <form className="grid stack-top" data-testid="fund-form" onSubmit={submit}>
-                <FormSelect label="Transaction type" options={transactionTypes.filter((type) => !["Initial Funding", "Closure Payout"].includes(type))} testId="transaction-type-select" value={form.type} onChange={(v) => setForm({ ...form, type: v })} />
+                <FormSelect label="Transaction type" options={tellerTransactionTypes} testId="transaction-type-select" value={form.type} onChange={(v) => setForm({ ...form, type: v })} />
                 <FormInput label="Amount" type="number" testId="amount-input" value={form.amount} onChange={(v) => setForm({ ...form, amount: v })} />
                 <Field label="Description"><textarea data-testid="transaction-description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Field>
                 <p className="error">{error}</p>
