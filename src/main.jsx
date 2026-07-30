@@ -17,6 +17,7 @@ import {
   RefreshCw,
   ShieldCheck,
   UserRound,
+  X,
   XCircle
 } from "lucide-react";
 import { api, clearAccessCode, setAccessCode } from "./api.js";
@@ -230,7 +231,8 @@ function App() {
     selectedAccountNumber,
     setSelectedAccountNumber,
     notify,
-    setModal
+    setModal,
+    modal
   };
 
   return (
@@ -283,16 +285,130 @@ function ConnectionError({ message, onRetry }) {
   );
 }
 
+// Everything in the login backdrop is vector or CSS, so it stays sharp on any
+// display and needs no network round-trip. Movement is transform/opacity only,
+// and the whole thing is switched off under prefers-reduced-motion.
+const backdropCoins = [
+  { left: 6, size: 46, delay: 0, duration: 19, glyph: "$" },
+  { left: 17, size: 30, delay: 4.5, duration: 23, glyph: "€" },
+  { left: 30, size: 56, delay: 9, duration: 17, glyph: "£" },
+  { left: 43, size: 34, delay: 2, duration: 25, glyph: "¥" },
+  { left: 57, size: 44, delay: 12, duration: 20, glyph: "$" },
+  { left: 69, size: 28, delay: 6.5, duration: 27, glyph: "₹" },
+  { left: 81, size: 50, delay: 15, duration: 18, glyph: "$" },
+  { left: 92, size: 32, delay: 8, duration: 24, glyph: "€" }
+];
+
+const skylineBuildings = [
+  { x: 18, w: 78, h: 168 },
+  { x: 106, w: 54, h: 232 },
+  { x: 170, w: 96, h: 130 },
+  { x: 276, w: 62, h: 196 },
+  { x: 348, w: 122, h: 262 },
+  { x: 480, w: 70, h: 148 },
+  { x: 560, w: 88, h: 214 },
+  { x: 658, w: 58, h: 166 },
+  { x: 726, w: 104, h: 242 },
+  { x: 840, w: 66, h: 146 },
+  { x: 916, w: 92, h: 202 },
+  { x: 1018, w: 60, h: 176 },
+  { x: 1088, w: 94, h: 138 }
+];
+
+const SKYLINE_BASE = 300;
+
+/** A few windows per tower that light up out of step with each other. */
+const litWindows = skylineBuildings.flatMap((building, index) =>
+  [0, 1].map((slot) => ({
+    key: `${index}-${slot}`,
+    x: building.x + 9 + ((index * 2 + slot * 3) % Math.max(1, Math.floor((building.w - 18) / 20))) * 20,
+    y: SKYLINE_BASE - building.h + 18 + ((index + slot * 4) % Math.max(1, Math.floor((building.h - 30) / 26))) * 26,
+    delay: ((index * 5 + slot * 11) % 17) * 0.6
+  }))
+);
+
+function LoginBackdrop() {
+  return (
+    <div className="backdrop" aria-hidden="true">
+      <span className="backdrop-glow glow-teal" />
+      <span className="backdrop-glow glow-gold" />
+
+      <svg className="backdrop-grid" viewBox="0 0 120 120" preserveAspectRatio="none" focusable="false">
+        <defs>
+          <pattern id="qtb-grid" width="10" height="10" patternUnits="userSpaceOnUse">
+            <path d="M10 0H0v10" fill="none" stroke="currentColor" strokeWidth="0.2" />
+          </pattern>
+        </defs>
+        <rect width="120" height="120" fill="url(#qtb-grid)" />
+      </svg>
+
+      <svg className="backdrop-vault" viewBox="0 0 200 200" focusable="false">
+        <g className="vault-ring">
+          <circle cx="100" cy="100" r="94" />
+          <circle cx="100" cy="100" r="72" />
+          <circle cx="100" cy="100" r="30" />
+          {[22.5, 112.5, 202.5, 292.5].map((angle) => (
+            <circle key={angle} className="vault-bolt" cx="100" cy="18" r="5" transform={`rotate(${angle} 100 100)`} />
+          ))}
+        </g>
+        <g className="vault-spokes">
+          {[0, 45, 90, 135, 180, 225, 270, 315].map((angle) => (
+            <rect key={angle} x="97.5" y="34" width="5" height="36" rx="2.5" transform={`rotate(${angle} 100 100)`} />
+          ))}
+        </g>
+      </svg>
+
+      <svg className="backdrop-chart" viewBox="0 0 620 200" preserveAspectRatio="none" focusable="false">
+        <path className="chart-area" d="M0 168 L70 140 L140 152 L210 104 L280 122 L350 74 L420 92 L490 48 L560 62 L620 26 L620 200 L0 200 Z" />
+        <path className="chart-line" d="M0 168 L70 140 L140 152 L210 104 L280 122 L350 74 L420 92 L490 48 L560 62 L620 26" />
+      </svg>
+
+      <span className="bank-card bank-card-a"><span className="bank-card-chip" /><span className="bank-card-line" /></span>
+      <span className="bank-card bank-card-b"><span className="bank-card-chip" /><span className="bank-card-line" /></span>
+
+      <span className="coin-layer">
+        {backdropCoins.map((coin) => (
+          <span
+            key={`${coin.left}-${coin.glyph}`}
+            className="coin"
+            style={{ left: `${coin.left}%`, "--coin-size": `${coin.size}px`, "--coin-delay": `${coin.delay}s`, "--coin-duration": `${coin.duration}s` }}
+          >
+            {coin.glyph}
+          </span>
+        ))}
+      </span>
+
+      <svg className="backdrop-skyline" viewBox="0 0 1200 300" preserveAspectRatio="xMidYMax slice" focusable="false">
+        <defs>
+          <pattern id="qtb-windows" width="20" height="26" patternUnits="userSpaceOnUse">
+            <rect x="9" y="10" width="8" height="11" rx="1.5" />
+          </pattern>
+        </defs>
+        {skylineBuildings.map((building) => (
+          <g key={building.x}>
+            <rect className="tower" x={building.x} y={SKYLINE_BASE - building.h} width={building.w} height={building.h} rx="3" />
+            <rect className="tower-windows" x={building.x} y={SKYLINE_BASE - building.h} width={building.w} height={building.h} rx="3" fill="url(#qtb-windows)" />
+          </g>
+        ))}
+        {litWindows.map((window) => (
+          <rect key={window.key} className="window-lit" x={window.x} y={window.y} width="8" height="11" rx="1.5" style={{ animationDelay: `${window.delay}s` }} />
+        ))}
+      </svg>
+    </div>
+  );
+}
+
 function LoginVisual() {
   return (
     <section className="login-visual">
+      <LoginBackdrop />
       <div className="login-copy">
         <span className="login-kicker"><ShieldCheck size={17} /> QA-ready banking lab</span>
         <h1>QA's Trust Bank</h1>
-        <p>Customer onboarding, approvals, funding, and ledger checks in one realistic practice app.</p>
+        <p>Customer onboarding, approvals, funding, transfers, and ledger checks in one realistic practice app.</p>
         <div className="login-stats" aria-label="Demo workflow summary">
           <span><strong>4</strong> role journeys</span>
-          <span><strong>14+</strong> testable screens</span>
+          <span><strong>15+</strong> testable screens</span>
           <span><strong>1</strong> shared database</span>
         </div>
       </div>
@@ -436,7 +552,8 @@ function Metric({ label, value, testId }) {
   return <article className="metric" data-testid={testId}><div className="metric-label">{label}</div><div className="metric-value">{value}</div></article>;
 }
 
-function Dashboard({ user, data, setView, customerAccountNumber }) {
+function Dashboard(props) {
+  const { user, data, setView, customerAccountNumber, setSelectedApplicationId } = props;
   if (user.role === "customer") return <CustomerDashboard user={user} data={data} customerAccountNumber={customerAccountNumber} />;
   if (user.role === "applicant") {
     const mine = data.applications.filter((app) => app.ownerUsername === user.username);
@@ -450,7 +567,8 @@ function Dashboard({ user, data, setView, customerAccountNumber }) {
           <Metric label="Submitted" value={mine.filter((app) => app.status === "Submitted").length} testId="my-submitted-count" />
           <Metric label="Approved" value={mine.filter((app) => app.status === "Approved").length} testId="my-approved-count" />
         </section>
-        <section className="panel stack-top"><h2>My recent applications</h2><ApplicationsTable applications={mine} onOpen={() => setView("myApplications")} /></section>
+        <section className="panel stack-top"><h2>My recent applications</h2><ApplicationsTable applications={mine} onOpen={setSelectedApplicationId} /></section>
+        <ApplicationDetailDialog {...props} />
       </>
     );
   }
@@ -589,7 +707,6 @@ function Applications(props) {
       .filter((app) => !term || `${app.id} ${app.firstName} ${app.lastName} ${app.email} ${app.mobile} ${app.accountNumber}`.toLowerCase().includes(term))
       .sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
   }, [data.applications, filters, onlyMine, user.username]);
-  const selected = data.applications.find((app) => app.id === selectedApplicationId);
 
   return (
     <>
@@ -598,7 +715,7 @@ function Applications(props) {
         <ListFilters filters={filters} setFilters={setFilters} statuses={["All", "Submitted", "Under Review", "Approved", "Rejected", "Needs More Info"]} />
         <ApplicationsTable applications={visible} onOpen={setSelectedApplicationId} />
       </section>
-      {selected && <ApplicationDetail {...props} application={selected} />}
+      <ApplicationDetailDialog {...props} />
     </>
   );
 }
@@ -667,9 +784,9 @@ function ApplicationDetail({ user, apply, application, setModal, setSelectedAppl
   }
 
   return (
-    <section className="panel stack-top" data-testid="application-detail">
-      <div className="toolbar"><h2>{application.id} - {application.firstName} {application.lastName}</h2><Status value={application.status} /></div>
+    <div data-testid="application-detail">
       <div className="detail-list">
+        <Detail label="Status" value={application.status} />
         <Detail label="Email" value={application.email} />
         <Detail label="Mobile" value={application.mobile} />
         <Detail label="DOB" value={application.dob} />
@@ -694,7 +811,7 @@ function ApplicationDetail({ user, apply, application, setModal, setSelectedAppl
           </div>
         </div>
       ) : <p className="muted stack-top">Reviewer comments: {application.reviewerComments || "None"}</p>}
-    </section>
+    </div>
   );
 }
 
@@ -929,7 +1046,6 @@ function ClosureRequests(props) {
       .filter((request) => !term || `${request.id} ${request.accountNumber} ${request.customerId} ${request.accountHolder} ${request.reason}`.toLowerCase().includes(term))
       .sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
   }, [data.closureRequests, filters]);
-  const selected = data.closureRequests.find((request) => request.id === selectedClosureId);
 
   return (
     <>
@@ -938,7 +1054,7 @@ function ClosureRequests(props) {
         <ListFilters filters={filters} setFilters={setFilters} statuses={["All", "Submitted", "Under Review", "Approved", "Rejected", "Needs More Info"]} testId="closure-status-filter" />
         <ClosureRequestsTable requests={visible} onOpen={setSelectedClosureId} />
       </section>
-      {selected && <ClosureRequestDetail {...props} request={selected} />}
+      <ClosureRequestDetailDialog {...props} />
     </>
   );
 }
@@ -999,8 +1115,7 @@ function ClosureRequestDetail({ user, data, apply, request, setModal, setSelecte
   }
 
   return (
-    <section className="panel stack-top" data-testid="closure-detail">
-      <div className="toolbar"><h2>{request.id} - account {request.accountNumber}</h2><Status value={request.status} /></div>
+    <div data-testid="closure-detail">
       <div className="detail-list">
         <Detail label="Account holder" value={request.accountHolder || "-"} />
         <Detail label="Customer ID" value={request.customerId || "-"} />
@@ -1028,7 +1143,7 @@ function ClosureRequestDetail({ user, data, apply, request, setModal, setSelecte
           </div>
         </div>
       ) : <p className="muted stack-top">Reviewer comments: {request.reviewerComments || "None"}</p>}
-    </section>
+    </div>
   );
 }
 
@@ -1215,6 +1330,87 @@ function FormInput({ label, type = "text", value = "", onChange, testId, classNa
 
 function FormSelect({ label, options, value = "", onChange, testId, className = "", required = false }) {
   return <div className={`field ${className}`}><label>{label}{required ? <span className="required-marker">*</span> : null}</label><select value={value || ""} data-testid={testId} onChange={(e) => onChange(e.target.value)} required={required}><option value="">Select</option>{options.map((option) => <option key={option}>{option}</option>)}</select></div>;
+}
+
+/**
+ * Popup shell for record details. `blocked` is set while a confirmation dialog
+ * sits on top, so Escape closes that one first rather than yanking this away
+ * from underneath it.
+ */
+function DetailDialog({ title, subtitle, status, onClose, blocked, testId, children }) {
+  useEffect(() => {
+    function onKeyDown(event) {
+      if (event.key === "Escape" && !blocked) onClose();
+    }
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onClose, blocked]);
+
+  return (
+    <div
+      className="modal-backdrop detail-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      data-testid={testId}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !blocked) onClose();
+      }}
+    >
+      <div className="modal modal-wide">
+        <header className="modal-head">
+          <div>
+            <h2>{title}</h2>
+            {subtitle ? <p className="muted">{subtitle}</p> : null}
+          </div>
+          <div className="modal-head-actions">
+            {status}
+            <button type="button" className="icon-button" data-testid="close-detail" aria-label="Close details" onClick={onClose}><X size={18} /></button>
+          </div>
+        </header>
+        <div className="modal-body">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function ApplicationDetailDialog(props) {
+  const application = props.data.applications.find((item) => item.id === props.selectedApplicationId);
+  if (!application) return null;
+  return (
+    <DetailDialog
+      testId="application-detail-dialog"
+      title={`${application.id} - ${application.firstName} ${application.lastName}`}
+      subtitle={`${application.accountType} account request - ${application.branch} branch`}
+      status={<Status value={application.status} />}
+      blocked={Boolean(props.modal)}
+      onClose={() => props.setSelectedApplicationId(null)}
+    >
+      <ApplicationDetail {...props} application={application} />
+    </DetailDialog>
+  );
+}
+
+function ClosureRequestDetailDialog(props) {
+  const request = props.data.closureRequests.find((item) => item.id === props.selectedClosureId);
+  if (!request) return null;
+  return (
+    <DetailDialog
+      testId="closure-detail-dialog"
+      title={`${request.id} - account ${request.accountNumber}`}
+      subtitle={`Closure requested by ${request.accountHolder || request.customerId || "account holder"}`}
+      status={<Status value={request.status} />}
+      blocked={Boolean(props.modal)}
+      onClose={() => props.setSelectedClosureId(null)}
+    >
+      <ClosureRequestDetail {...props} request={request} />
+    </DetailDialog>
+  );
 }
 
 function ConfirmModal({ modal, onCancel }) {
