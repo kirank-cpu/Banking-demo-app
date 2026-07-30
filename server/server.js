@@ -1,6 +1,6 @@
 // Local / self-hosted entry point: serves the API and, when a production build
 // exists, the UI too - so one process can host the whole demo for a team.
-// On Vercel the same Express app is served by api/[...path].js instead.
+// On Vercel the same Express app is served by api/index.js instead.
 
 import express from "express";
 import fs from "node:fs";
