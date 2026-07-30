@@ -25,7 +25,7 @@ const users = [
   { username: "applicant", password: "demo123", name: "Avery Stone", role: "applicant", label: "Customer Applicant" },
   { username: "reviewer", password: "demo123", name: "Mina Patel", role: "reviewer", label: "Bank Reviewer" },
   { username: "teller", password: "demo123", name: "Jon Mercer", role: "teller", label: "Teller Operations" },
-  { username: "customer", password: "demo123", name: "Priya Nair", role: "customer", label: "Account Holder", customerId: "C1001" },
+  { username: "customer", password: "demo123", name: "Girish Uppar", role: "customer", label: "Account Holder", customerId: "C1001" },
   { username: "admin", password: "demo123", name: "Sam Rivera", role: "admin", label: "Admin" }
 ];
 
@@ -156,6 +156,7 @@ function nextNumeric(prefix, items, field = "id") {
 
 function App() {
   const [session, setSession] = useState(null);
+  const [customerAccountNumber, setCustomerAccountNumber] = useState(null);
   const [view, setView] = useState("dashboard");
   const [data, setData] = useState(loadData);
   const [selectedApplicationId, setSelectedApplicationId] = useState(null);
@@ -165,6 +166,17 @@ function App() {
   const [modal, setModal] = useState(null);
 
   const user = users.find((item) => item.username === session);
+  const displayName = useMemo(() => {
+    if (!user) return "";
+    if (user.role === "customer") {
+      const account = customerAccountNumber ? data.accounts.find((a) => a.accountNumber === customerAccountNumber) : null;
+      const customerId = account?.customerId || user.customerId;
+      const app = data.applications.find((a) => a.customerId === customerId) || data.applications.find((a) => a.ownerUsername === user.username);
+      const name = app ? `${app.firstName || ""} ${app.lastName || ""}`.trim() : user.name;
+      return name || user.name;
+    }
+    return user.name;
+  }, [user, data, customerAccountNumber]);
 
   function save(nextData) {
     setData(nextData);
@@ -184,7 +196,7 @@ function App() {
   }
 
   if (!user) {
-    return <LoginScreen onLogin={(nextUser) => { setSession(nextUser.username); setView("dashboard"); }} />;
+    return <LoginScreen data={data} onLogin={(nextUser, context) => { setSession(nextUser.username); setCustomerAccountNumber(context?.accountNumber || null); setView("dashboard"); }} />;
   }
 
   const props = {
@@ -192,6 +204,7 @@ function App() {
     data,
     save,
     view,
+    customerAccountNumber,
     setView,
     filters,
     setFilters,
@@ -209,8 +222,8 @@ function App() {
       <header className="topbar">
         <Brand />
         <div className="top-actions">
-          <span className="user-chip" data-testid="current-user"><span className="avatar">{user.name[0]}</span>{user.name} - {user.label}</span>
-          <button className="btn secondary" data-testid="logout-button" onClick={() => setSession(null)}><LogOut size={17} /> Sign out</button>
+          <span className="user-chip" data-testid="current-user"><span className="avatar">{(displayName || user.name)[0]}</span>{displayName} - {user.label}</span>
+          <button className="btn secondary" data-testid="logout-button" onClick={() => { setSession(null); setCustomerAccountNumber(null); }}><LogOut size={17} /> Sign out</button>
         </div>
       </header>
       <div className="workspace">
@@ -241,12 +254,33 @@ function Brand() {
   );
 }
 
-function LoginScreen({ onLogin }) {
+function LoginScreen({ data, onLogin }) {
   const [error, setError] = useState("");
-  const [form, setForm] = useState({ username: "", password: "" });
+  const [mode, setMode] = useState("staff");
+  const [form, setForm] = useState({ username: "", password: "", accountId: "", dob: "" });
 
   function submit(event) {
     event.preventDefault();
+    if (mode === "customer") {
+      const accountId = form.accountId.trim();
+      if (!accountId || !form.dob) {
+        setError("Account ID and date of birth are required.");
+        return;
+      }
+      const account = data.accounts.find((item) => item.accountNumber === accountId || item.customerId === accountId);
+      if (!account) {
+        setError("We could not find a matching account for that account ID.");
+        return;
+      }
+      const profile = data.applications.find((item) => item.customerId === account.customerId && item.dob === form.dob);
+      if (!profile) {
+        setError("The account ID and date of birth did not match our records.");
+        return;
+      }
+      onLogin(users.find((user) => user.role === "customer"), { accountNumber: account.accountNumber, customerId: account.customerId });
+      return;
+    }
+
     const found = users.find((user) => user.username === form.username.trim() && user.password === form.password);
     if (!found) {
       setError("Invalid username or password.");
@@ -272,24 +306,37 @@ function LoginScreen({ onLogin }) {
       <section className="login-panel">
         <Brand />
         <div className="login-heading">
-          <span className="login-eyebrow">Secure staff access</span>
+          <span className="login-eyebrow">Secure access</span>
           <h1>Sign in to operations</h1>
           <p className="muted">Use a seeded role to continue the banking workflow.</p>
         </div>
+        <div className="login-mode-switch" role="tablist" aria-label="Sign in mode">
+          <button type="button" className={`login-mode-button ${mode === "staff" ? "active" : ""}`} onClick={() => setMode("staff")}>Staff</button>
+          <button type="button" className={`login-mode-button ${mode === "customer" ? "active" : ""}`} onClick={() => setMode("customer")}>Customer</button>
+        </div>
         <form className="grid" data-testid="login-form" onSubmit={submit}>
-          <Field label="Username"><input data-testid="username-input" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} /></Field>
-          <Field label="Password"><input data-testid="password-input" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></Field>
+          {mode === "customer" ? (
+            <>
+              <Field label="Account ID"><input data-testid="account-id-input" value={form.accountId} onChange={(e) => setForm({ ...form, accountId: e.target.value })} /></Field>
+              <Field label="Date of birth"><input data-testid="customer-dob-input" type="date" value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} /></Field>
+            </>
+          ) : (
+            <>
+              <Field label="Username"><input data-testid="username-input" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} /></Field>
+              <Field label="Password"><input data-testid="password-input" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></Field>
+            </>
+          )}
           <button className="btn primary login-submit" data-testid="login-button">Sign in</button>
           <p className="error" role="alert">{error}</p>
         </form>
         <div className="demo-users">
           <strong>Demo users</strong>
-          {users.map((user) => (
+          {users.filter((user) => user.role !== "customer").map((user) => (
             <button key={user.username} className="demo-user" data-testid={`quick-login-${user.role}`} onClick={() => onLogin(user)}>
               <span>{user.label}</span><strong>{user.username}</strong>
             </button>
           ))}
-          <span className="muted">Password for all users: demo123</span>
+          <span className="muted">Password for staff users: demo123</span>
         </div>
       </section>
     </div>
@@ -316,8 +363,8 @@ function Metric({ label, value, testId }) {
   return <article className="metric" data-testid={testId}><div className="metric-label">{label}</div><div className="metric-value">{value}</div></article>;
 }
 
-function Dashboard({ user, data, setView, resetDemo }) {
-  if (user.role === "customer") return <CustomerDashboard user={user} data={data} />;
+function Dashboard({ user, data, setView, resetDemo, customerAccountNumber }) {
+  if (user.role === "customer") return <CustomerDashboard user={user} data={data} customerAccountNumber={customerAccountNumber} />;
   if (user.role === "applicant") {
     const mine = data.applications.filter((app) => app.ownerUsername === user.username);
     return (
@@ -351,8 +398,8 @@ function Dashboard({ user, data, setView, resetDemo }) {
   );
 }
 
-function CustomerDashboard({ user, data }) {
-  const accounts = data.accounts.filter((account) => account.ownerUsername === user.username || account.customerId === user.customerId);
+function CustomerDashboard({ user, data, customerAccountNumber }) {
+  const accounts = data.accounts.filter((account) => (account.ownerUsername === user.username || account.customerId === user.customerId) && (!customerAccountNumber || account.accountNumber === customerAccountNumber));
   const accountNumbers = accounts.map((account) => account.accountNumber);
   return (
     <>
@@ -374,7 +421,7 @@ function AccountCard({ account }) {
   );
 }
 
-function ApplicationForm({ user, data, save, setView, setSelectedApplicationId, notify }) {
+function ApplicationForm({ user, data, save, setView, setSelectedApplicationId, notify, setModal }) {
   const [form, setForm] = useState({});
   const [error, setError] = useState("");
   const set = (field, value) => setForm((current) => ({ ...current, [field]: value }));
@@ -406,6 +453,12 @@ function ApplicationForm({ user, data, save, setView, setSelectedApplicationId, 
     save({ ...data, applications: [...data.applications, application], audit: [...data.audit, { at: now, actor: user.name, action: `Application ${id} submitted` }] });
     setSelectedApplicationId(id);
     setView("myApplications");
+    setModal({
+      title: "Application submitted",
+      body: `Your application ${id} has been received and is now under review.`,
+      confirmText: "Continue",
+      onConfirm: () => setModal(null)
+    });
     notify(`Application ${id} submitted.`);
   }
 
@@ -413,35 +466,36 @@ function ApplicationForm({ user, data, save, setView, setSelectedApplicationId, 
     <>
       <PageHead title="New customer application" subtitle="Capture identity, profile, account request, and opening deposit details." />
       <form className="panel" data-testid="application-form" onSubmit={submit}>
+        <div className="form-hint">Required fields are marked with <span className="required-marker">*</span>.</div>
         <h2>Customer details</h2>
         <div className="form-grid">
-          <FormInput label="First name" testId="first-name-input" value={form.firstName} onChange={(v) => set("firstName", v)} />
-          <FormInput label="Last name" testId="last-name-input" value={form.lastName} onChange={(v) => set("lastName", v)} />
-          <FormInput label="Date of birth" type="date" testId="dob-input" value={form.dob} onChange={(v) => set("dob", v)} />
-          <FormSelect label="Gender" options={["Female", "Male", "Non-binary", "Prefer not to say"]} testId="gender-select" value={form.gender} onChange={(v) => set("gender", v)} />
-          <FormInput label="Email" testId="email-input" value={form.email} onChange={(v) => set("email", v)} />
-          <FormInput label="Mobile number" testId="mobile-input" value={form.mobile} onChange={(v) => set("mobile", v)} />
-          <FormInput className="span-2" label="Address" testId="address-input" value={form.address} onChange={(v) => set("address", v)} />
-          <FormInput label="City" testId="city-input" value={form.city} onChange={(v) => set("city", v)} />
-          <FormInput label="State" testId="state-input" value={form.state} onChange={(v) => set("state", v)} />
-          <FormInput label="ZIP" testId="zip-input" value={form.zip} onChange={(v) => set("zip", v)} />
+          <FormInput label="First name" required testId="first-name-input" value={form.firstName} onChange={(v) => set("firstName", v)} />
+          <FormInput label="Last name" required testId="last-name-input" value={form.lastName} onChange={(v) => set("lastName", v)} />
+          <FormInput label="Date of birth" required type="date" testId="dob-input" value={form.dob} onChange={(v) => set("dob", v)} />
+          <FormSelect label="Gender" required options={["Female", "Male", "Non-binary", "Prefer not to say"]} testId="gender-select" value={form.gender} onChange={(v) => set("gender", v)} />
+          <FormInput label="Email" required testId="email-input" value={form.email} onChange={(v) => set("email", v)} />
+          <FormInput label="Mobile number" required testId="mobile-input" value={form.mobile} onChange={(v) => set("mobile", v)} />
+          <FormInput className="span-2" label="Address" required testId="address-input" value={form.address} onChange={(v) => set("address", v)} />
+          <FormInput label="City" required testId="city-input" value={form.city} onChange={(v) => set("city", v)} />
+          <FormInput label="State" required testId="state-input" value={form.state} onChange={(v) => set("state", v)} />
+          <FormInput label="ZIP" required testId="zip-input" value={form.zip} onChange={(v) => set("zip", v)} />
         </div>
         <h2 className="stack-top">Identity and employment</h2>
         <div className="form-grid">
-          <FormInput label="National ID / SSN" testId="national-id-input" value={form.nationalId} onChange={(v) => set("nationalId", v)} />
-          <FormSelect label="ID document type" options={["Driver License", "Passport", "State ID"]} testId="id-type-select" value={form.idType} onChange={(v) => set("idType", v)} />
-          <FormInput label="ID number" testId="id-number-input" value={form.idNumber} onChange={(v) => set("idNumber", v)} />
-          <FormInput label="Occupation" testId="occupation-input" value={form.occupation} onChange={(v) => set("occupation", v)} />
-          <FormInput label="Employer" testId="employer-input" value={form.employer} onChange={(v) => set("employer", v)} />
-          <FormInput label="Annual income" type="number" testId="income-input" value={form.income} onChange={(v) => set("income", v)} />
+          <FormInput label="National ID / SSN" required testId="national-id-input" value={form.nationalId} onChange={(v) => set("nationalId", v)} />
+          <FormSelect label="ID document type" required options={["Driver License", "Passport", "State ID"]} testId="id-type-select" value={form.idType} onChange={(v) => set("idType", v)} />
+          <FormInput label="ID number" required testId="id-number-input" value={form.idNumber} onChange={(v) => set("idNumber", v)} />
+          <FormInput label="Occupation" required testId="occupation-input" value={form.occupation} onChange={(v) => set("occupation", v)} />
+          <FormInput label="Employer" required testId="employer-input" value={form.employer} onChange={(v) => set("employer", v)} />
+          <FormInput label="Annual income" required type="number" testId="income-input" value={form.income} onChange={(v) => set("income", v)} />
         </div>
         <h2 className="stack-top">Account request</h2>
         <div className="form-grid">
-          <FormSelect label="Account type" options={accountTypes} testId="account-type-select" value={form.accountType} onChange={(v) => set("accountType", v)} />
-          <FormInput label="Initial deposit" type="number" testId="initial-deposit-input" value={form.initialDeposit} onChange={(v) => set("initialDeposit", v)} />
-          <FormSelect label="Branch" options={branches} testId="branch-select" value={form.branch} onChange={(v) => set("branch", v)} />
+          <FormSelect label="Account type" required options={accountTypes} testId="account-type-select" value={form.accountType} onChange={(v) => set("accountType", v)} />
+          <FormInput label="Initial deposit" required type="number" testId="initial-deposit-input" value={form.initialDeposit} onChange={(v) => set("initialDeposit", v)} />
+          <FormSelect label="Branch" required options={branches} testId="branch-select" value={form.branch} onChange={(v) => set("branch", v)} />
           <FormInput className="span-2" label="Document upload" testId="document-upload-input" value={form.documents} onChange={(v) => set("documents", v)} />
-          <label className="checkbox-row span-3"><input type="checkbox" data-testid="terms-checkbox" checked={Boolean(form.terms)} onChange={(e) => set("terms", e.target.checked)} /> I confirm the customer details are accurate.</label>
+          <label className="checkbox-row span-3"><input type="checkbox" data-testid="terms-checkbox" checked={Boolean(form.terms)} onChange={(e) => set("terms", e.target.checked)} /> I confirm the customer details are accurate. <span className="required-marker">*</span></label>
         </div>
         <p className="error" role="alert">{error}</p>
         <div className="actions"><button type="button" className="btn secondary" data-testid="clear-application" onClick={() => setForm({})}>Clear</button><button className="btn primary" data-testid="submit-application">Submit application</button></div>
@@ -692,8 +746,8 @@ function AccountsTable({ data, accounts, onSelect }) {
   );
 }
 
-function Transactions({ user, data, filters, setFilters }) {
-  const accountNumbers = user.role === "customer" ? data.accounts.filter((account) => account.ownerUsername === user.username || account.customerId === user.customerId).map((account) => account.accountNumber) : null;
+function Transactions({ user, data, filters, setFilters, customerAccountNumber }) {
+  const accountNumbers = user.role === "customer" ? data.accounts.filter((account) => (account.ownerUsername === user.username || account.customerId === user.customerId) && (!customerAccountNumber || account.accountNumber === customerAccountNumber)).map((account) => account.accountNumber) : null;
   const visible = data.transactions
     .filter((txn) => !accountNumbers || accountNumbers.includes(txn.accountNumber))
     .filter((txn) => filters.transactionType === "All" || txn.type === filters.transactionType)
@@ -738,13 +792,17 @@ function TransactionsTable({ transactions }) {
   );
 }
 
-function Profile({ user, data }) {
-  const app = data.applications.find((item) => item.ownerUsername === user.username || item.customerId === user.customerId);
+function Profile({ user, data, customerAccountNumber }) {
+  const account = customerAccountNumber ? data.accounts.find((item) => item.accountNumber === customerAccountNumber) : null;
+  const matchedCustomerId = account?.customerId || user.customerId;
+  const app = data.applications.find((item) => item.customerId === matchedCustomerId) || data.applications.find((item) => item.ownerUsername === user.username) || null;
+  const fullName = app ? `${app.firstName || ""} ${app.lastName || ""}`.trim() : user.name || "Customer";
+
   return (
     <>
       <PageHead title="Profile" subtitle="Customer information captured during onboarding." />
       <section className="panel">{app ? <div className="detail-list">
-        <Detail label="Name" value={`${app.firstName} ${app.lastName}`} />
+        <Detail label="Name" value={fullName} />
         <Detail label="Email" value={app.email} />
         <Detail label="Mobile" value={app.mobile} />
         <Detail label="Address" value={`${app.address}, ${app.city}, ${app.state} ${app.zip}`} />
@@ -776,12 +834,12 @@ function Field({ label, children }) {
   return <div className="field"><label>{label}</label>{children}</div>;
 }
 
-function FormInput({ label, type = "text", value = "", onChange, testId, className = "" }) {
-  return <div className={`field ${className}`}><label>{label}</label><input type={type} value={value || ""} data-testid={testId} onChange={(e) => onChange(e.target.value)} /></div>;
+function FormInput({ label, type = "text", value = "", onChange, testId, className = "", required = false }) {
+  return <div className={`field ${className}`}><label>{label}{required ? <span className="required-marker">*</span> : null}</label><input type={type} value={value || ""} data-testid={testId} onChange={(e) => onChange(e.target.value)} required={required} /></div>;
 }
 
-function FormSelect({ label, options, value = "", onChange, testId, className = "" }) {
-  return <div className={`field ${className}`}><label>{label}</label><select value={value || ""} data-testid={testId} onChange={(e) => onChange(e.target.value)}><option value="">Select</option>{options.map((option) => <option key={option}>{option}</option>)}</select></div>;
+function FormSelect({ label, options, value = "", onChange, testId, className = "", required = false }) {
+  return <div className={`field ${className}`}><label>{label}{required ? <span className="required-marker">*</span> : null}</label><select value={value || ""} data-testid={testId} onChange={(e) => onChange(e.target.value)} required={required}><option value="">Select</option>{options.map((option) => <option key={option}>{option}</option>)}</select></div>;
 }
 
 function ConfirmModal({ modal, onCancel }) {
