@@ -276,6 +276,17 @@ h3 {
   font-weight: 750;
 }
 
+.required-marker {
+  color: var(--accent);
+  margin-left: 2px;
+}
+
+.form-hint {
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
 .field input,
 .field select,
 .field textarea {
@@ -467,6 +478,28 @@ h3 {
 
 .login-submit {
   width: 100%;
+}
+
+.login-mode-switch {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0 6px;
+}
+
+.login-mode-button {
+  background: #f4f7f9;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  min-height: 36px;
+  padding: 0 12px;
+}
+
+.login-mode-button.active {
+  background: var(--soft);
+  border-color: #a9cccc;
+  color: var(--brand-dark);
+  font-weight: 800;
 }
 
 .demo-users {
