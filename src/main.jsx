@@ -73,10 +73,35 @@ function ownedAccounts(data, user, customerAccountNumber) {
   );
 }
 
+// Who is signed in, kept in sessionStorage so a refresh does not bounce you back
+// to the login screen. Deliberately per-tab rather than localStorage: testers
+// routinely keep a reviewer in one tab and a customer in another, and a shared
+// store would make those two tabs fight over one identity.
+const SESSION_KEY = "qtb-session";
+
+function loadSession() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null");
+    const user = saved && users.find((item) => item.username === saved.username);
+    if (!user) return null;
+    // A view from a previous role would render nothing, so fall back to the dashboard.
+    const allowedViews = navByRole[user.role].map(([id]) => id);
+    return {
+      username: user.username,
+      customerAccountNumber: saved.customerAccountNumber || null,
+      view: allowedViews.includes(saved.view) ? saved.view : "dashboard"
+    };
+  } catch {
+    return null; // corrupt entry, or storage blocked
+  }
+}
+
+const restoredSession = loadSession();
+
 function App() {
-  const [session, setSession] = useState(null);
-  const [customerAccountNumber, setCustomerAccountNumber] = useState(null);
-  const [view, setView] = useState("dashboard");
+  const [session, setSession] = useState(restoredSession?.username || null);
+  const [customerAccountNumber, setCustomerAccountNumber] = useState(restoredSession?.customerAccountNumber || null);
+  const [view, setView] = useState(restoredSession?.view || "dashboard");
   const [data, setData] = useState(null);
   const [loadError, setLoadError] = useState("");
   const [needsAccessCode, setNeedsAccessCode] = useState(false);
@@ -125,6 +150,15 @@ function App() {
     reload();
   }, [reload]);
 
+  useEffect(() => {
+    try {
+      if (session) sessionStorage.setItem(SESSION_KEY, JSON.stringify({ username: session, customerAccountNumber, view }));
+      else sessionStorage.removeItem(SESSION_KEY);
+    } catch {
+      // storage blocked; the session just won't survive a refresh
+    }
+  }, [session, customerAccountNumber, view]);
+
   const user = users.find((item) => item.username === session);
   const displayName = useMemo(() => {
     if (!user || !data) return "";
@@ -133,6 +167,15 @@ function App() {
     const name = profile ? `${profile.firstName || ""} ${profile.lastName || ""}`.trim() : "";
     return name || user.name;
   }, [user, data, customerAccountNumber]);
+
+  // A restored account-holder session can outlive its account - most often when a
+  // teammate resets the shared demo data. Sign out rather than show empty screens.
+  useEffect(() => {
+    if (!data || !user || user.role !== "customer" || !customerAccountNumber) return;
+    if (data.accounts.some((account) => account.accountNumber === customerAccountNumber)) return;
+    signOut();
+    notify("That account is no longer available. Please sign in again.");
+  }, [data, user, customerAccountNumber]);
 
   function apply(state) {
     setData(state);

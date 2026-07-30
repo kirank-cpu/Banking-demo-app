@@ -148,6 +148,11 @@ Staff users (password `demo123`): `applicant`, `reviewer`, `teller`, `admin`.
 Account holders sign in with an **account ID** and **date of birth** - seeded example:
 account `8001200101`, DOB `1992-04-16`.
 
+A refresh keeps you signed in and on the same screen. The session is held in
+`sessionStorage`, so it is **per tab**: you can keep a reviewer in one tab and a
+customer in another and refresh either without them fighting over one identity.
+Closing the tab ends the session, and signing out clears it immediately.
+
 ## Workflows
 
 **Opening an account.** Applicant submits an application -> reviewer approves -> a customer
