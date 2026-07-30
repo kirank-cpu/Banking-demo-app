@@ -5,6 +5,14 @@ node_modules/
 dist/
 build/
 
+# Local SQLite database
+server/*.db
+server/*.db-shm
+server/*.db-wal
+
+# Vercel
+.vercel
+
 # Local env files
 .env
 .env.*

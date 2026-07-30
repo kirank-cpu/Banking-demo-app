@@ -614,6 +614,11 @@ tr:last-child td {
   color: #245ea8;
 }
 
+.status.closed {
+  background: #e8ecee;
+  color: #4d5f66;
+}
+
 .detail-list {
   display: grid;
   gap: 10px;

@@ -1,25 +1,28 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   BadgeDollarSign,
+  Ban,
   Banknote,
   CheckCircle2,
   CircleDollarSign,
   ClipboardList,
   FileCheck2,
+  FileX2,
   Home,
   Landmark,
   LogOut,
   Plus,
+  RefreshCw,
   RotateCcw,
   ShieldCheck,
   UserRound,
   XCircle
 } from "lucide-react";
+import { api, clearAccessCode, setAccessCode } from "./api.js";
+import { accountTypes, branches, closureReasons, payoutMethods, transactionTypes, validateApplication, validateClosureRequest } from "../server/rules.js";
 import "../styles.css";
 import "./react.css";
-
-const STORAGE_KEY = "metrobank-react-demo-state-v1";
 
 const users = [
   { username: "applicant", password: "demo123", name: "Avery Stone", role: "applicant", label: "Customer Applicant" },
@@ -31,111 +34,11 @@ const users = [
 
 const navByRole = {
   applicant: [["dashboard", "Overview", Home], ["apply", "New Application", Plus], ["myApplications", "My Applications", ClipboardList]],
-  reviewer: [["dashboard", "Review Queue", FileCheck2], ["applications", "Applications", ClipboardList], ["audit", "Audit Trail", CheckCircle2]],
+  reviewer: [["dashboard", "Review Queue", FileCheck2], ["applications", "Applications", ClipboardList], ["closures", "Closure Requests", FileX2], ["audit", "Audit Trail", CheckCircle2]],
   teller: [["dashboard", "Operations", Home], ["funding", "Fund Account", BadgeDollarSign], ["transactions", "Transactions", CircleDollarSign]],
-  customer: [["dashboard", "Accounts", Landmark], ["transactions", "Transactions", CircleDollarSign], ["profile", "Profile", UserRound]],
-  admin: [["dashboard", "Control Center", Home], ["applications", "Applications", ClipboardList], ["accounts", "Accounts", Landmark], ["transactions", "Transactions", CircleDollarSign], ["audit", "Audit Trail", CheckCircle2]]
+  customer: [["dashboard", "Accounts", Landmark], ["transactions", "Transactions", CircleDollarSign], ["closeAccount", "Close Account", Ban], ["profile", "Profile", UserRound]],
+  admin: [["dashboard", "Control Center", Home], ["applications", "Applications", ClipboardList], ["closures", "Closure Requests", FileX2], ["accounts", "Accounts", Landmark], ["transactions", "Transactions", CircleDollarSign], ["audit", "Audit Trail", CheckCircle2]]
 };
-
-const accountTypes = ["Savings", "Checking", "Current"];
-const branches = ["Downtown", "North Park", "West End", "Digital"];
-const transactionTypes = ["Initial Funding", "Cash Deposit", "Withdrawal", "Internal Transfer", "Service Fee", "Interest Credit", "Refund"];
-
-const seedData = {
-  applications: [
-    {
-      id: "APP-24001",
-      ownerUsername: "customer",
-      customerId: "C1001",
-      status: "Approved",
-      firstName: "Priya",
-      lastName: "Nair",
-      dob: "1992-04-16",
-      gender: "Female",
-      email: "priya.nair@example.com",
-      mobile: "5552149001",
-      address: "24 Market Street",
-      city: "Austin",
-      state: "TX",
-      zip: "73301",
-      nationalId: "TX-4432-7812",
-      idType: "Driver License",
-      idNumber: "D7821192",
-      occupation: "Product Analyst",
-      employer: "Northstar Retail",
-      income: 82000,
-      accountType: "Savings",
-      initialDeposit: 500,
-      branch: "Downtown",
-      submittedAt: "2026-06-10T10:12:00.000Z",
-      reviewer: "Mina Patel",
-      reviewerComments: "KYC checks complete.",
-      decisionAt: "2026-06-11T09:30:00.000Z",
-      accountNumber: "8001200101",
-      documents: "drivers-license.pdf"
-    },
-    {
-      id: "APP-24002",
-      ownerUsername: "applicant",
-      customerId: null,
-      status: "Submitted",
-      firstName: "Noah",
-      lastName: "Bennett",
-      dob: "1988-09-03",
-      gender: "Male",
-      email: "noah.bennett@example.com",
-      mobile: "5557781203",
-      address: "85 Lake View Road",
-      city: "Columbus",
-      state: "OH",
-      zip: "43004",
-      nationalId: "OH-9931-2277",
-      idType: "Passport",
-      idNumber: "P8821002",
-      occupation: "Consultant",
-      employer: "Freelance",
-      income: 69000,
-      accountType: "Checking",
-      initialDeposit: 250,
-      branch: "Digital",
-      submittedAt: "2026-06-19T14:55:00.000Z",
-      reviewer: "",
-      reviewerComments: "",
-      decisionAt: "",
-      accountNumber: "",
-      documents: "passport.pdf"
-    }
-  ],
-  accounts: [
-    {
-      customerId: "C1001",
-      ownerUsername: "customer",
-      accountNumber: "8001200101",
-      accountType: "Savings",
-      status: "Active",
-      branch: "Downtown",
-      openedAt: "2026-06-11T09:30:00.000Z",
-      currentBalance: 1725,
-      availableBalance: 1725
-    }
-  ],
-  transactions: [
-    { id: "TXN-900001", accountNumber: "8001200101", type: "Initial Funding", direction: "Credit", amount: 500, balanceAfter: 500, description: "Opening deposit", status: "Completed", createdBy: "Jon Mercer", createdAt: "2026-06-11T10:00:00.000Z" },
-    { id: "TXN-900002", accountNumber: "8001200101", type: "Cash Deposit", direction: "Credit", amount: 1250, balanceAfter: 1750, description: "Counter cash deposit", status: "Completed", createdBy: "Jon Mercer", createdAt: "2026-06-15T12:40:00.000Z" },
-    { id: "TXN-900003", accountNumber: "8001200101", type: "Service Fee", direction: "Debit", amount: 25, balanceAfter: 1725, description: "Monthly account fee", status: "Completed", createdBy: "System", createdAt: "2026-06-18T03:00:00.000Z" }
-  ],
-  audit: [
-    { at: "2026-06-10T10:12:00.000Z", actor: "Priya Nair", action: "Application APP-24001 submitted" },
-    { at: "2026-06-11T09:30:00.000Z", actor: "Mina Patel", action: "Application APP-24001 approved and account 8001200101 created" },
-    { at: "2026-06-11T10:00:00.000Z", actor: "Jon Mercer", action: "Initial funding completed for account 8001200101" },
-    { at: "2026-06-19T14:55:00.000Z", actor: "Noah Bennett", action: "Application APP-24002 submitted" }
-  ]
-};
-
-function loadData() {
-  const saved = localStorage.getItem(STORAGE_KEY);
-  return saved ? JSON.parse(saved) : structuredClone(seedData);
-}
 
 function money(value) {
   return Number(value || 0).toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -149,38 +52,90 @@ function statusClass(status) {
   return String(status).toLowerCase().replaceAll(" ", "-");
 }
 
-function nextNumeric(prefix, items, field = "id") {
-  const max = items.reduce((highest, item) => Math.max(highest, Number(String(item[field] || "").replace(/\D/g, "")) || 0), 0);
-  return `${prefix}-${String(max + 1).padStart(5, "0")}`;
+/** The customer record behind a signed-in account holder, with an application fallback. */
+function findCustomerProfile(data, user, customerAccountNumber) {
+  const account = customerAccountNumber ? data.accounts.find((item) => item.accountNumber === customerAccountNumber) : null;
+  const customerId = account?.customerId || user.customerId;
+  return (
+    data.customers.find((item) => item.customerId === customerId) ||
+    data.customers.find((item) => item.ownerUsername === user.username) ||
+    data.applications.find((item) => item.customerId === customerId) ||
+    data.applications.find((item) => item.ownerUsername === user.username) ||
+    null
+  );
+}
+
+function ownedAccounts(data, user, customerAccountNumber) {
+  return data.accounts.filter(
+    (account) =>
+      (account.ownerUsername === user.username || account.customerId === user.customerId || account.accountNumber === customerAccountNumber) &&
+      (!customerAccountNumber || account.accountNumber === customerAccountNumber)
+  );
 }
 
 function App() {
   const [session, setSession] = useState(null);
   const [customerAccountNumber, setCustomerAccountNumber] = useState(null);
   const [view, setView] = useState("dashboard");
-  const [data, setData] = useState(loadData);
+  const [data, setData] = useState(null);
+  const [loadError, setLoadError] = useState("");
+  const [needsAccessCode, setNeedsAccessCode] = useState(false);
+  const [accessCodeError, setAccessCodeError] = useState("");
+  const [checkingAccessCode, setCheckingAccessCode] = useState(false);
   const [selectedApplicationId, setSelectedApplicationId] = useState(null);
+  const [selectedClosureId, setSelectedClosureId] = useState(null);
   const [selectedAccountNumber, setSelectedAccountNumber] = useState("8001200101");
   const [filters, setFilters] = useState({ search: "", status: "All", transactionType: "All" });
   const [toast, setToast] = useState("");
   const [modal, setModal] = useState(null);
 
+  const reload = useCallback(async () => {
+    try {
+      const result = await api.getState();
+      setData(result.state);
+      setLoadError("");
+      setNeedsAccessCode(false);
+    } catch (error) {
+      if (error.code === "unauthorized") {
+        setData(null);
+        setNeedsAccessCode(true);
+      } else {
+        setLoadError(error.message);
+      }
+    }
+  }, []);
+
+  async function submitAccessCode(code) {
+    setCheckingAccessCode(true);
+    setAccessCodeError("");
+    try {
+      setAccessCode(code);
+      const result = await api.getState();
+      setData(result.state);
+      setNeedsAccessCode(false);
+    } catch (error) {
+      clearAccessCode();
+      setAccessCodeError(error.code === "unauthorized" ? "That access code was not accepted." : error.message);
+    } finally {
+      setCheckingAccessCode(false);
+    }
+  }
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
   const user = users.find((item) => item.username === session);
   const displayName = useMemo(() => {
-    if (!user) return "";
-    if (user.role === "customer") {
-      const account = customerAccountNumber ? data.accounts.find((a) => a.accountNumber === customerAccountNumber) : null;
-      const customerId = account?.customerId || user.customerId;
-      const app = data.applications.find((a) => a.customerId === customerId) || data.applications.find((a) => a.ownerUsername === user.username);
-      const name = app ? `${app.firstName || ""} ${app.lastName || ""}`.trim() : user.name;
-      return name || user.name;
-    }
-    return user.name;
+    if (!user || !data) return "";
+    if (user.role !== "customer") return user.name;
+    const profile = findCustomerProfile(data, user, customerAccountNumber);
+    const name = profile ? `${profile.firstName || ""} ${profile.lastName || ""}`.trim() : "";
+    return name || user.name;
   }, [user, data, customerAccountNumber]);
 
-  function save(nextData) {
-    setData(nextData);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(nextData));
+  function apply(state) {
+    setData(state);
   }
 
   function notify(message) {
@@ -188,12 +143,40 @@ function App() {
     window.setTimeout(() => setToast(""), 2600);
   }
 
-  function resetDemo() {
-    localStorage.removeItem(STORAGE_KEY);
-    save(structuredClone(seedData));
+  function signOut() {
+    setSession(null);
+    setCustomerAccountNumber(null);
+    setView("dashboard");
     setSelectedApplicationId(null);
-    notify("Demo data reset.");
+    setSelectedClosureId(null);
+    setModal(null);
   }
+
+  function confirmSignOut() {
+    setModal({
+      title: "Sign out of QA's Trust Bank?",
+      body: "You will be returned to the sign-in screen. Any details you have typed but not submitted will be lost.",
+      confirmText: "Sign out",
+      testId: "signout-modal",
+      onConfirm: signOut
+    });
+  }
+
+  async function resetDemo() {
+    try {
+      const result = await api.reset();
+      apply(result.state);
+      setSelectedApplicationId(null);
+      setSelectedClosureId(null);
+      notify("Demo data reset.");
+    } catch (error) {
+      notify(error.message);
+    }
+  }
+
+  if (needsAccessCode) return <AccessGate onSubmit={submitAccessCode} error={accessCodeError} busy={checkingAccessCode} />;
+  if (loadError && !data) return <ConnectionError message={loadError} onRetry={reload} />;
+  if (!data) return <LoadingScreen />;
 
   if (!user) {
     return <LoginScreen data={data} onLogin={(nextUser, context) => { setSession(nextUser.username); setCustomerAccountNumber(context?.accountNumber || null); setView("dashboard"); }} />;
@@ -202,7 +185,8 @@ function App() {
   const props = {
     user,
     data,
-    save,
+    apply,
+    reload,
     view,
     customerAccountNumber,
     setView,
@@ -210,6 +194,8 @@ function App() {
     setFilters,
     selectedApplicationId,
     setSelectedApplicationId,
+    selectedClosureId,
+    setSelectedClosureId,
     selectedAccountNumber,
     setSelectedAccountNumber,
     notify,
@@ -223,7 +209,7 @@ function App() {
         <Brand />
         <div className="top-actions">
           <span className="user-chip" data-testid="current-user"><span className="avatar">{(displayName || user.name)[0]}</span>{displayName} - {user.label}</span>
-          <button className="btn secondary" data-testid="logout-button" onClick={() => { setSession(null); setCustomerAccountNumber(null); }}><LogOut size={17} /> Sign out</button>
+          <button className="btn secondary" data-testid="logout-button" onClick={confirmSignOut}><LogOut size={17} /> Sign out</button>
         </div>
       </header>
       <div className="workspace">
@@ -231,7 +217,7 @@ function App() {
           <p className="role-title">{user.label}</p>
           <nav className="nav-list" aria-label="Main navigation">
             {navByRole[user.role].map(([id, label, Icon]) => (
-              <button key={id} className={`nav-button ${view === id ? "active" : ""}`} data-testid={`nav-${id}`} onClick={() => { setView(id); setSelectedApplicationId(null); }}>
+              <button key={id} className={`nav-button ${view === id ? "active" : ""}`} data-testid={`nav-${id}`} onClick={() => { setView(id); setSelectedApplicationId(null); setSelectedClosureId(null); }}>
                 <Icon size={18} /><span>{label}</span>
               </button>
             ))}
@@ -254,6 +240,69 @@ function Brand() {
   );
 }
 
+function LoadingScreen() {
+  return <div className="empty" data-testid="app-loading" style={{ margin: "80px auto", maxWidth: 420 }}>Loading banking data...</div>;
+}
+
+function ConnectionError({ message, onRetry }) {
+  return (
+    <div className="empty" data-testid="connection-error" style={{ margin: "80px auto", maxWidth: 520 }}>
+      <p>{message}</p>
+      <button className="btn primary stack-top" data-testid="retry-connection" onClick={onRetry}><RefreshCw size={17} /> Try again</button>
+    </div>
+  );
+}
+
+function LoginVisual() {
+  return (
+    <section className="login-visual">
+      <div className="login-copy">
+        <span className="login-kicker"><ShieldCheck size={17} /> QA-ready banking lab</span>
+        <h1>QA's Trust Bank</h1>
+        <p>Customer onboarding, approvals, funding, and ledger checks in one realistic practice app.</p>
+        <div className="login-stats" aria-label="Demo workflow summary">
+          <span><strong>4</strong> role journeys</span>
+          <span><strong>14+</strong> testable screens</span>
+          <span><strong>1</strong> shared database</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Shown when the API is gated by BANKING_ACCESS_CODE. One shared code for the
+ * whole team - it keeps strangers out of a public deployment, it is not per-user
+ * authentication.
+ */
+function AccessGate({ onSubmit, error, busy }) {
+  const [code, setCode] = useState("");
+
+  return (
+    <div className="login-screen">
+      <LoginVisual />
+      <section className="login-panel">
+        <Brand />
+        <div className="login-heading">
+          <span className="login-eyebrow">Restricted</span>
+          <h1>Team access code</h1>
+          <p className="muted">This demo is shared by the QA team. Enter the access code to continue.</p>
+        </div>
+        <form className="grid" data-testid="access-gate-form" onSubmit={(event) => { event.preventDefault(); onSubmit(code); }}>
+          <Field label="Access code">
+            <input type="password" data-testid="access-code-input" value={code} onChange={(event) => setCode(event.target.value)} autoFocus />
+          </Field>
+          <button className="btn primary login-submit" data-testid="access-code-submit" disabled={busy}>{busy ? "Checking..." : "Continue"}</button>
+          <p className="error" role="alert">{error}</p>
+        </form>
+        <div className="demo-users">
+          <span className="muted">Ask whoever set up the deployment for the code. It is stored in this browser so you only enter it once.</span>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function LoginScreen({ data, onLogin }) {
   const [error, setError] = useState("");
   const [mode, setMode] = useState("staff");
@@ -272,7 +321,9 @@ function LoginScreen({ data, onLogin }) {
         setError("We could not find a matching account for that account ID.");
         return;
       }
-      const profile = data.applications.find((item) => item.customerId === account.customerId && item.dob === form.dob);
+      const profile =
+        data.customers.find((item) => item.customerId === account.customerId && item.dob === form.dob) ||
+        data.applications.find((item) => item.customerId === account.customerId && item.dob === form.dob);
       if (!profile) {
         setError("The account ID and date of birth did not match our records.");
         return;
@@ -291,18 +342,7 @@ function LoginScreen({ data, onLogin }) {
 
   return (
     <div className="login-screen">
-      <section className="login-visual">
-        <div className="login-copy">
-          <span className="login-kicker"><ShieldCheck size={17} /> QA-ready banking lab</span>
-          <h1>QA's Trust Bank</h1>
-          <p>Customer onboarding, approvals, funding, and ledger checks in one realistic practice app.</p>
-          <div className="login-stats" aria-label="Demo workflow summary">
-            <span><strong>4</strong> role journeys</span>
-            <span><strong>12+</strong> testable screens</span>
-            <span><strong>100%</strong> local demo data</span>
-          </div>
-        </div>
-      </section>
+      <LoginVisual />
       <section className="login-panel">
         <Brand />
         <div className="login-heading">
@@ -347,6 +387,8 @@ function CurrentView(props) {
   if (props.view === "apply") return <ApplicationForm {...props} />;
   if (props.view === "myApplications") return <Applications {...props} onlyMine />;
   if (props.view === "applications") return <Applications {...props} />;
+  if (props.view === "closeAccount") return <CloseAccount {...props} />;
+  if (props.view === "closures") return <ClosureRequests {...props} />;
   if (props.view === "funding") return <Funding {...props} />;
   if (props.view === "accounts") return <Accounts data={props.data} setSelectedAccountNumber={props.setSelectedAccountNumber} setView={props.setView} />;
   if (props.view === "transactions") return <Transactions {...props} />;
@@ -382,6 +424,7 @@ function Dashboard({ user, data, setView, resetDemo, customerAccountNumber }) {
     );
   }
   const pending = data.applications.filter((app) => ["Submitted", "Under Review"].includes(app.status)).length;
+  const pendingClosures = data.closureRequests.filter((request) => ["Submitted", "Under Review", "Needs More Info"].includes(request.status)).length;
   return (
     <>
       <PageHead title={user.role === "reviewer" ? "Review queue" : user.role === "teller" ? "Teller operations" : "Control center"} subtitle="Operational snapshot for today's demo banking work." />
@@ -390,6 +433,13 @@ function Dashboard({ user, data, setView, resetDemo, customerAccountNumber }) {
         <Metric label="Approved applications" value={data.applications.filter((app) => app.status === "Approved").length} testId="approved-count" />
         <Metric label="Total balances" value={money(data.accounts.reduce((sum, account) => sum + account.currentBalance, 0))} testId="balance-count" />
       </section>
+      {user.role !== "teller" && (
+        <section className="grid three stack-top">
+          <Metric label="Open closure requests" value={pendingClosures} testId="pending-closure-count" />
+          <Metric label="Closed accounts" value={data.accounts.filter((account) => account.status === "Closed").length} testId="closed-account-count" />
+          <Metric label="Registered customers" value={data.customers.length} testId="customer-count" />
+        </section>
+      )}
       <section className="panel stack-top">
         <div className="toolbar"><h2>Recent activity</h2><button className="btn secondary" data-testid="reset-demo" onClick={resetDemo}><RotateCcw size={17} /> Reset demo data</button></div>
         <AuditList audit={data.audit.slice(-5).reverse()} />
@@ -399,7 +449,7 @@ function Dashboard({ user, data, setView, resetDemo, customerAccountNumber }) {
 }
 
 function CustomerDashboard({ user, data, customerAccountNumber }) {
-  const accounts = data.accounts.filter((account) => (account.ownerUsername === user.username || account.customerId === user.customerId) && (!customerAccountNumber || account.accountNumber === customerAccountNumber));
+  const accounts = ownedAccounts(data, user, customerAccountNumber);
   const accountNumbers = accounts.map((account) => account.accountNumber);
   return (
     <>
@@ -421,45 +471,39 @@ function AccountCard({ account }) {
   );
 }
 
-function ApplicationForm({ user, data, save, setView, setSelectedApplicationId, notify, setModal }) {
+function ApplicationForm({ user, data, apply, setView, setSelectedApplicationId, notify, setModal }) {
   const [form, setForm] = useState({});
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   const set = (field, value) => setForm((current) => ({ ...current, [field]: value }));
 
-  function submit(event) {
+  async function submit(event) {
     event.preventDefault();
     const validation = validateApplication(form, data.applications);
     if (validation) {
       setError(validation);
       return;
     }
-    const now = new Date().toISOString();
-    const id = nextNumeric("APP", data.applications);
-    const application = {
-      id,
-      ownerUsername: user.username,
-      customerId: null,
-      status: "Submitted",
-      ...form,
-      income: Number(form.income),
-      initialDeposit: Number(form.initialDeposit),
-      submittedAt: now,
-      reviewer: "",
-      reviewerComments: "",
-      decisionAt: "",
-      accountNumber: "",
-      documents: form.documents || "mock-document.pdf"
-    };
-    save({ ...data, applications: [...data.applications, application], audit: [...data.audit, { at: now, actor: user.name, action: `Application ${id} submitted` }] });
-    setSelectedApplicationId(id);
-    setView("myApplications");
-    setModal({
-      title: "Application submitted",
-      body: `Your application ${id} has been received and is now under review.`,
-      confirmText: "Continue",
-      onConfirm: () => setModal(null)
-    });
-    notify(`Application ${id} submitted.`);
+    setBusy(true);
+    try {
+      const result = await api.createApplication(form, { username: user.username, name: user.name });
+      apply(result.state);
+      setError("");
+      setSelectedApplicationId(result.id);
+      setView("myApplications");
+      setModal({
+        title: "Application submitted",
+        body: `Your application ${result.id} has been received and is now under review.`,
+        confirmText: "Continue",
+        testId: "application-submitted-modal",
+        onConfirm: () => setModal(null)
+      });
+      notify(`Application ${result.id} submitted.`);
+    } catch (submitError) {
+      setError(submitError.message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -498,32 +542,10 @@ function ApplicationForm({ user, data, save, setView, setSelectedApplicationId, 
           <label className="checkbox-row span-3"><input type="checkbox" data-testid="terms-checkbox" checked={Boolean(form.terms)} onChange={(e) => set("terms", e.target.checked)} /> I confirm the customer details are accurate. <span className="required-marker">*</span></label>
         </div>
         <p className="error" role="alert">{error}</p>
-        <div className="actions"><button type="button" className="btn secondary" data-testid="clear-application" onClick={() => setForm({})}>Clear</button><button className="btn primary" data-testid="submit-application">Submit application</button></div>
+        <div className="actions"><button type="button" className="btn secondary" data-testid="clear-application" onClick={() => setForm({})}>Clear</button><button className="btn primary" data-testid="submit-application" disabled={busy}>{busy ? "Submitting..." : "Submit application"}</button></div>
       </form>
     </>
   );
-}
-
-function validateApplication(form, applications) {
-  const required = ["firstName", "lastName", "dob", "gender", "email", "mobile", "address", "city", "state", "zip", "nationalId", "idType", "idNumber", "occupation", "employer", "income", "accountType", "initialDeposit", "branch"];
-  if (required.some((field) => !String(form[field] || "").trim())) return "Please complete all required fields.";
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) return "Enter a valid email address.";
-  if (!/^\d{10}$/.test(form.mobile)) return "Mobile number must be 10 digits.";
-  if (ageFromDob(form.dob) < 18) return "Applicant must be at least 18 years old.";
-  if (Number(form.initialDeposit) < 100) return "Initial deposit must be at least $100.";
-  if (Number(form.income) <= 0) return "Annual income must be greater than zero.";
-  if (!form.terms) return "Confirm the customer details before submitting.";
-  if (applications.some((app) => app.email.toLowerCase() === form.email.toLowerCase() || app.nationalId === form.nationalId)) return "An application already exists for this email or national ID.";
-  return "";
-}
-
-function ageFromDob(dob) {
-  const birth = new Date(dob);
-  const today = new Date();
-  let age = today.getFullYear() - birth.getFullYear();
-  const month = today.getMonth() - birth.getMonth();
-  if (month < 0 || (month === 0 && today.getDate() < birth.getDate())) age -= 1;
-  return age;
 }
 
 function Applications(props) {
@@ -550,12 +572,12 @@ function Applications(props) {
   );
 }
 
-function ListFilters({ filters, setFilters, statuses }) {
+function ListFilters({ filters, setFilters, statuses, testId = "status-filter" }) {
   return (
     <div className="toolbar">
       <div className="filters">
         <Field label="Search"><input data-testid="search-input" value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} /></Field>
-        <Field label="Status"><select data-testid="status-filter" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>{statuses.map((status) => <option key={status}>{status}</option>)}</select></Field>
+        <Field label="Status"><select data-testid={testId} value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>{statuses.map((status) => <option key={status}>{status}</option>)}</select></Field>
       </div>
       <button className="btn secondary" data-testid="clear-filters" onClick={() => setFilters({ ...filters, search: "", status: "All" })}>Clear filters</button>
     </div>
@@ -583,7 +605,7 @@ function ApplicationsTable({ applications, onOpen }) {
   );
 }
 
-function ApplicationDetail({ user, data, save, application, setModal, setSelectedApplicationId, notify }) {
+function ApplicationDetail({ user, apply, application, setModal, setSelectedApplicationId, notify }) {
   const [comments, setComments] = useState(application.reviewerComments || "");
   const [error, setError] = useState("");
   const canReview = ["reviewer", "admin"].includes(user.role) && !["Approved", "Rejected"].includes(application.status);
@@ -597,28 +619,18 @@ function ApplicationDetail({ user, data, save, application, setModal, setSelecte
       title: `${decision} application`,
       body: `Confirm ${decision.toLowerCase()} for application ${application.id}.`,
       confirmText: decision,
-      onConfirm: () => {
-        const now = new Date().toISOString();
-        const next = structuredClone(data);
-        const app = next.applications.find((item) => item.id === application.id);
-        app.status = decision;
-        app.reviewer = user.name;
-        app.reviewerComments = comments || "Approved after review.";
-        app.decisionAt = now;
-        if (decision === "Approved") {
-          const accountNumber = String(Math.max(...next.accounts.map((account) => Number(account.accountNumber)), 8001200101) + 1);
-          const customerId = `C${Math.max(...next.applications.map((item) => Number(String(item.customerId || "").replace(/\D/g, "")) || 1000)) + 1}`;
-          app.accountNumber = accountNumber;
-          app.customerId = customerId;
-          next.accounts.push({ customerId, ownerUsername: app.ownerUsername === "applicant" ? "customer" : app.ownerUsername, accountNumber, accountType: app.accountType, status: "Pending Funding", branch: app.branch, openedAt: now, currentBalance: 0, availableBalance: 0 });
-          next.audit.push({ at: now, actor: user.name, action: `Application ${app.id} approved and account ${accountNumber} created` });
-        } else {
-          next.audit.push({ at: now, actor: user.name, action: `Application ${app.id} marked ${decision}` });
+      onConfirm: async () => {
+        try {
+          const result = await api.decideApplication(application.id, decision, comments, user.name);
+          apply(result.state);
+          setError("");
+          setSelectedApplicationId(application.id);
+          setModal(null);
+          notify(`Application ${application.id} ${decision.toLowerCase()}.`);
+        } catch (decisionError) {
+          setModal(null);
+          setError(decisionError.message);
         }
-        save(next);
-        setSelectedApplicationId(application.id);
-        setModal(null);
-        notify(`Application ${application.id} ${decision.toLowerCase()}.`);
       }
     });
   }
@@ -655,39 +667,247 @@ function ApplicationDetail({ user, data, save, application, setModal, setSelecte
   );
 }
 
-function Funding({ data, save, selectedAccountNumber, setSelectedAccountNumber, notify, filters, setFilters }) {
-  const [form, setForm] = useState({ type: "", amount: "", description: "" });
+function CloseAccount({ user, data, apply, customerAccountNumber, notify, setModal }) {
+  const accounts = ownedAccounts(data, user, customerAccountNumber);
+  const closable = accounts.filter((account) => account.status !== "Closed");
+  const [form, setForm] = useState({ accountNumber: closable[0]?.accountNumber || "", reason: "", details: "", payoutMethod: "", payoutReference: "", confirm: false });
   const [error, setError] = useState("");
-  const term = filters.search.toLowerCase();
-  const accounts = data.accounts.filter((account) => {
-    const app = data.applications.find((item) => item.accountNumber === account.accountNumber);
-    return !term || `${account.accountNumber} ${account.customerId} ${app?.firstName || ""} ${app?.lastName || ""}`.toLowerCase().includes(term);
-  });
-  const account = data.accounts.find((item) => item.accountNumber === selectedAccountNumber) || data.accounts[0];
+  const [busy, setBusy] = useState(false);
+  const set = (field, value) => setForm((current) => ({ ...current, [field]: value }));
+
+  const accountNumbers = accounts.map((account) => account.accountNumber);
+  const myRequests = data.closureRequests.filter((request) => accountNumbers.includes(request.accountNumber)).sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
+  // Once a request is approved the selected account disappears from `closable`,
+  // so fall back to the first one still open rather than holding a stale number.
+  const selectedNumber = closable.some((item) => item.accountNumber === form.accountNumber) ? form.accountNumber : closable[0]?.accountNumber || "";
+  const account = data.accounts.find((item) => item.accountNumber === selectedNumber);
 
   function submit(event) {
     event.preventDefault();
-    const amount = Number(form.amount);
-    if (!account) return setError("Select a valid account.");
-    if (!form.type) return setError("Select a transaction type.");
-    if (!Number.isFinite(amount) || amount <= 0) return setError("Amount must be greater than zero.");
-    const direction = ["Withdrawal", "Service Fee"].includes(form.type) ? "Debit" : "Credit";
-    if (direction === "Debit" && account.currentBalance < amount) return setError("Insufficient balance for debit transaction.");
+    const payload = { ...form, accountNumber: selectedNumber };
+    const validation = validateClosureRequest(payload, account, data.closureRequests);
+    if (validation) {
+      setError(validation);
+      return;
+    }
+    setModal({
+      title: "Submit account closure request?",
+      body: `Account ${account.accountNumber} holds ${money(account.currentBalance)}. Once a reviewer approves this request the balance is paid out via ${form.payoutMethod.toLowerCase()} and the account is permanently closed.`,
+      confirmText: "Submit request",
+      testId: "closure-confirm-modal",
+      onConfirm: async () => {
+        setBusy(true);
+        try {
+          const result = await api.createClosureRequest(payload, { username: user.username, name: user.name });
+          apply(result.state);
+          setError("");
+          setForm({ accountNumber: selectedNumber, reason: "", details: "", payoutMethod: "", payoutReference: "", confirm: false });
+          setModal({
+            title: "Closure request submitted",
+            body: `Request ${result.id} has been sent for review. Your account stays open and usable until a reviewer approves it.`,
+            confirmText: "Continue",
+            testId: "closure-submitted-modal",
+            onConfirm: () => setModal(null)
+          });
+          notify(`Closure request ${result.id} submitted.`);
+        } catch (submitError) {
+          setModal(null);
+          setError(submitError.message);
+        } finally {
+          setBusy(false);
+        }
+      }
+    });
+  }
 
-    const now = new Date().toISOString();
-    const next = structuredClone(data);
-    const nextAccount = next.accounts.find((item) => item.accountNumber === account.accountNumber);
-    const nextBalance = direction === "Debit" ? nextAccount.currentBalance - amount : nextAccount.currentBalance + amount;
-    nextAccount.currentBalance = nextBalance;
-    nextAccount.availableBalance = nextBalance;
-    if (nextAccount.status === "Pending Funding" && nextBalance > 0) nextAccount.status = "Active";
-    const txn = { id: nextNumeric("TXN", next.transactions), accountNumber: nextAccount.accountNumber, type: form.type, direction, amount, balanceAfter: nextBalance, description: form.description || form.type, status: "Completed", createdBy: "Teller", createdAt: now };
-    next.transactions.push(txn);
-    next.audit.push({ at: now, actor: "Teller", action: `${form.type} ${txn.id} posted to account ${nextAccount.accountNumber}` });
-    save(next);
-    setSelectedAccountNumber(nextAccount.accountNumber);
-    setForm({ type: "", amount: "", description: "" });
-    notify(`Transaction ${txn.id} posted.`);
+  return (
+    <>
+      <PageHead title="Close an account" subtitle="Raise a closure request for review. Approved requests pay out the balance and close the account." />
+      {closable.length ? (
+        <form className="panel" data-testid="closure-form" onSubmit={submit}>
+          <div className="form-hint">Required fields are marked with <span className="required-marker">*</span>.</div>
+          <h2>Account to close</h2>
+          <div className="form-grid">
+            <FormSelect label="Account" required options={closable.map((item) => item.accountNumber)} testId="closure-account-select" value={selectedNumber} onChange={(v) => set("accountNumber", v)} />
+            <Detail label="Current balance" value={account ? money(account.currentBalance) : "-"} />
+            <Detail label="Account status" value={account ? account.status : "-"} />
+          </div>
+          <h2 className="stack-top">Reason for closing</h2>
+          <div className="form-grid">
+            <FormSelect label="Reason" required options={closureReasons} testId="closure-reason-select" value={form.reason} onChange={(v) => set("reason", v)} />
+            <div className="field span-2">
+              <label>Additional details{form.reason === "Other" ? <span className="required-marker">*</span> : null}</label>
+              <textarea data-testid="closure-details" value={form.details} onChange={(e) => set("details", e.target.value)} />
+            </div>
+          </div>
+          <h2 className="stack-top">Remaining balance payout</h2>
+          <div className="form-grid">
+            <FormSelect label="Payout method" required options={payoutMethods} testId="closure-payout-select" value={form.payoutMethod} onChange={(v) => set("payoutMethod", v)} />
+            <FormInput label="Destination account number" required={form.payoutMethod === "Transfer to another bank account"} testId="closure-payout-reference" value={form.payoutReference} onChange={(v) => set("payoutReference", v)} />
+            <label className="checkbox-row span-3"><input type="checkbox" data-testid="closure-confirm-checkbox" checked={Boolean(form.confirm)} onChange={(e) => set("confirm", e.target.checked)} /> I understand this closes the account permanently once approved. <span className="required-marker">*</span></label>
+          </div>
+          <p className="error" role="alert">{error}</p>
+          <div className="actions">
+            <button type="button" className="btn secondary" data-testid="clear-closure" onClick={() => setForm({ accountNumber: selectedNumber, reason: "", details: "", payoutMethod: "", payoutReference: "", confirm: false })}>Clear</button>
+            <button className="btn danger" data-testid="submit-closure" disabled={busy}><Ban size={17} /> {busy ? "Submitting..." : "Request account closure"}</button>
+          </div>
+        </form>
+      ) : (
+        <section className="panel"><div className="empty" data-testid="no-closable-accounts">You have no open accounts available to close.</div></section>
+      )}
+      <section className="panel stack-top">
+        <h2>My closure requests</h2>
+        <ClosureRequestsTable requests={myRequests} />
+      </section>
+    </>
+  );
+}
+
+function ClosureRequests(props) {
+  const { data, filters, setFilters, selectedClosureId, setSelectedClosureId } = props;
+  const visible = useMemo(() => {
+    const term = filters.search.toLowerCase();
+    return data.closureRequests
+      .filter((request) => filters.status === "All" || request.status === filters.status)
+      .filter((request) => !term || `${request.id} ${request.accountNumber} ${request.customerId} ${request.accountHolder} ${request.reason}`.toLowerCase().includes(term))
+      .sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
+  }, [data.closureRequests, filters]);
+  const selected = data.closureRequests.find((request) => request.id === selectedClosureId);
+
+  return (
+    <>
+      <PageHead title="Account closure requests" subtitle="Review customer requests to close an account, then approve, reject, or ask for more information." />
+      <section className="panel">
+        <ListFilters filters={filters} setFilters={setFilters} statuses={["All", "Submitted", "Under Review", "Approved", "Rejected", "Needs More Info"]} testId="closure-status-filter" />
+        <ClosureRequestsTable requests={visible} onOpen={setSelectedClosureId} />
+      </section>
+      {selected && <ClosureRequestDetail {...props} request={selected} />}
+    </>
+  );
+}
+
+function ClosureRequestsTable({ requests, onOpen }) {
+  if (!requests.length) return <div className="empty" data-testid="empty-closures">No closure requests match the current view.</div>;
+  return (
+    <div className="table-wrap">
+      <table data-testid="closures-table">
+        <thead><tr><th>Request</th><th>Account</th><th>Reason</th><th>Submitted</th><th>Status</th>{onOpen ? <th>Action</th> : null}</tr></thead>
+        <tbody>{requests.map((request) => (
+          <tr key={request.id} data-testid={`closure-row-${request.id}`}>
+            <td><strong>{request.id}</strong><br /><span className="muted">{request.accountHolder || request.customerId}</span></td>
+            <td>{request.accountNumber}<br /><span className="muted">{money(request.closingBalance)} at request</span></td>
+            <td>{request.reason}<br /><span className="muted">{request.payoutMethod}</span></td>
+            <td>{dateTime(request.submittedAt)}</td>
+            <td><Status value={request.status} /></td>
+            {onOpen ? <td><button className="btn secondary" data-testid={`view-closure-${request.id}`} onClick={() => onOpen(request.id)}>Open</button></td> : null}
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function ClosureRequestDetail({ user, data, apply, request, setModal, setSelectedClosureId, notify }) {
+  const [comments, setComments] = useState(request.reviewerComments || "");
+  const [error, setError] = useState("");
+  const account = data.accounts.find((item) => item.accountNumber === request.accountNumber);
+  const canReview = ["reviewer", "admin"].includes(user.role) && ["Submitted", "Under Review", "Needs More Info"].includes(request.status);
+
+  function decide(decision) {
+    if (["Rejected", "Needs More Info"].includes(decision) && !comments.trim()) {
+      setError("Comments are required for this decision.");
+      return;
+    }
+    setModal({
+      title: `${decision} closure request`,
+      body: decision === "Approved"
+        ? `Approving closes account ${request.accountNumber} permanently and pays out ${money(account?.currentBalance || 0)} via ${request.payoutMethod.toLowerCase()}.`
+        : `Confirm ${decision.toLowerCase()} for closure request ${request.id}.`,
+      confirmText: decision,
+      testId: "closure-decision-modal",
+      onConfirm: async () => {
+        try {
+          const result = await api.decideClosureRequest(request.id, decision, comments, user.name);
+          apply(result.state);
+          setError("");
+          setSelectedClosureId(request.id);
+          setModal(null);
+          notify(`Closure request ${request.id} ${decision.toLowerCase()}.`);
+        } catch (decisionError) {
+          setModal(null);
+          setError(decisionError.message);
+        }
+      }
+    });
+  }
+
+  return (
+    <section className="panel stack-top" data-testid="closure-detail">
+      <div className="toolbar"><h2>{request.id} - account {request.accountNumber}</h2><Status value={request.status} /></div>
+      <div className="detail-list">
+        <Detail label="Account holder" value={request.accountHolder || "-"} />
+        <Detail label="Customer ID" value={request.customerId || "-"} />
+        <Detail label="Account type" value={account ? `${account.accountType} - ${account.branch}` : "-"} />
+        <Detail label="Account status" value={account ? account.status : "-"} />
+        <Detail label="Current balance" value={money(account?.currentBalance || 0)} />
+        <Detail label="Balance at request" value={money(request.closingBalance)} />
+        <Detail label="Reason" value={request.reason} />
+        <Detail label="Additional details" value={request.details || "None"} />
+        <Detail label="Payout method" value={request.payoutMethod} />
+        <Detail label="Payout reference" value={request.payoutReference || "-"} />
+        <Detail label="Submitted" value={dateTime(request.submittedAt)} />
+        <Detail label="Decision" value={request.decisionAt ? `${request.status} - ${dateTime(request.decisionAt)}` : "Pending"} />
+        <Detail label="Payout transaction" value={request.payoutTransactionId || "-"} />
+        <Detail label="Reviewer" value={request.reviewer || "-"} />
+      </div>
+      {canReview ? (
+        <div className="grid stack-top" data-testid="closure-review-form">
+          <Field label="Reviewer comments"><textarea data-testid="closure-review-comments" value={comments} onChange={(e) => setComments(e.target.value)} /></Field>
+          <p className="error">{error}</p>
+          <div className="actions">
+            <button className="btn secondary" data-testid="closure-needs-info-button" onClick={() => decide("Needs More Info")}>Request info</button>
+            <button className="btn danger" data-testid="closure-reject-button" onClick={() => decide("Rejected")}><XCircle size={17} /> Reject</button>
+            <button className="btn success" data-testid="closure-approve-button" onClick={() => decide("Approved")}><CheckCircle2 size={17} /> Approve and close</button>
+          </div>
+        </div>
+      ) : <p className="muted stack-top">Reviewer comments: {request.reviewerComments || "None"}</p>}
+    </section>
+  );
+}
+
+function Funding({ data, apply, selectedAccountNumber, setSelectedAccountNumber, notify, filters, setFilters }) {
+  const [form, setForm] = useState({ type: "", amount: "", description: "" });
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const term = filters.search.toLowerCase();
+  const accounts = data.accounts.filter((account) => {
+    const customer = data.customers.find((item) => item.customerId === account.customerId);
+    return !term || `${account.accountNumber} ${account.customerId} ${customer?.firstName || ""} ${customer?.lastName || ""}`.toLowerCase().includes(term);
+  });
+  const account = data.accounts.find((item) => item.accountNumber === selectedAccountNumber) || data.accounts[0];
+
+  async function submit(event) {
+    event.preventDefault();
+    if (!account) return setError("Select a valid account.");
+    setBusy(true);
+    try {
+      const result = await api.postTransaction({
+        accountNumber: account.accountNumber,
+        type: form.type,
+        amount: form.amount,
+        description: form.description,
+        createdBy: "Teller"
+      });
+      apply(result.state);
+      setError("");
+      setSelectedAccountNumber(account.accountNumber);
+      setForm({ type: "", amount: "", description: "" });
+      notify(`Transaction ${result.transaction.id} posted.`);
+    } catch (postError) {
+      setError(postError.message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -705,11 +925,11 @@ function Funding({ data, save, selectedAccountNumber, setSelectedAccountNumber, 
             <>
               <AccountCard account={account} />
               <form className="grid stack-top" data-testid="fund-form" onSubmit={submit}>
-                <FormSelect label="Transaction type" options={transactionTypes.filter((type) => type !== "Initial Funding")} testId="transaction-type-select" value={form.type} onChange={(v) => setForm({ ...form, type: v })} />
+                <FormSelect label="Transaction type" options={transactionTypes.filter((type) => !["Initial Funding", "Closure Payout"].includes(type))} testId="transaction-type-select" value={form.type} onChange={(v) => setForm({ ...form, type: v })} />
                 <FormInput label="Amount" type="number" testId="amount-input" value={form.amount} onChange={(v) => setForm({ ...form, amount: v })} />
                 <Field label="Description"><textarea data-testid="transaction-description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Field>
                 <p className="error">{error}</p>
-                <button className="btn primary" data-testid="post-transaction"><Banknote size={17} /> Post transaction</button>
+                <button className="btn primary" data-testid="post-transaction" disabled={busy}><Banknote size={17} /> {busy ? "Posting..." : "Post transaction"}</button>
               </form>
             </>
           ) : <div className="empty">Select an account to continue.</div>}
@@ -730,11 +950,11 @@ function AccountsTable({ data, accounts, onSelect }) {
       <table data-testid="accounts-table">
         <thead><tr><th>Account</th><th>Customer</th><th>Status</th><th>Balance</th><th>Action</th></tr></thead>
         <tbody>{accounts.map((account) => {
-          const app = data.applications.find((item) => item.accountNumber === account.accountNumber);
+          const customer = data.customers.find((item) => item.customerId === account.customerId);
           return (
             <tr key={account.accountNumber} data-testid={`account-row-${account.accountNumber}`}>
               <td><strong>{account.accountNumber}</strong><br /><span className="muted">{account.accountType} - {account.branch}</span></td>
-              <td>{app ? `${app.firstName} ${app.lastName}` : account.customerId}<br /><span className="muted">{account.customerId}</span></td>
+              <td>{customer ? `${customer.firstName} ${customer.lastName}` : account.customerId}<br /><span className="muted">{account.customerId}</span></td>
               <td><Status value={account.status} /></td>
               <td>{money(account.currentBalance)}</td>
               <td><button className="btn secondary" data-testid={`select-account-${account.accountNumber}`} onClick={() => onSelect(account.accountNumber)}>Select</button></td>
@@ -747,7 +967,7 @@ function AccountsTable({ data, accounts, onSelect }) {
 }
 
 function Transactions({ user, data, filters, setFilters, customerAccountNumber }) {
-  const accountNumbers = user.role === "customer" ? data.accounts.filter((account) => (account.ownerUsername === user.username || account.customerId === user.customerId) && (!customerAccountNumber || account.accountNumber === customerAccountNumber)).map((account) => account.accountNumber) : null;
+  const accountNumbers = user.role === "customer" ? ownedAccounts(data, user, customerAccountNumber).map((account) => account.accountNumber) : null;
   const visible = data.transactions
     .filter((txn) => !accountNumbers || accountNumbers.includes(txn.accountNumber))
     .filter((txn) => filters.transactionType === "All" || txn.type === filters.transactionType)
@@ -793,21 +1013,19 @@ function TransactionsTable({ transactions }) {
 }
 
 function Profile({ user, data, customerAccountNumber }) {
-  const account = customerAccountNumber ? data.accounts.find((item) => item.accountNumber === customerAccountNumber) : null;
-  const matchedCustomerId = account?.customerId || user.customerId;
-  const app = data.applications.find((item) => item.customerId === matchedCustomerId) || data.applications.find((item) => item.ownerUsername === user.username) || null;
-  const fullName = app ? `${app.firstName || ""} ${app.lastName || ""}`.trim() : user.name || "Customer";
+  const profile = findCustomerProfile(data, user, customerAccountNumber);
+  const fullName = profile ? `${profile.firstName || ""} ${profile.lastName || ""}`.trim() : user.name || "Customer";
 
   return (
     <>
       <PageHead title="Profile" subtitle="Customer information captured during onboarding." />
-      <section className="panel">{app ? <div className="detail-list">
+      <section className="panel">{profile ? <div className="detail-list">
         <Detail label="Name" value={fullName} />
-        <Detail label="Email" value={app.email} />
-        <Detail label="Mobile" value={app.mobile} />
-        <Detail label="Address" value={`${app.address}, ${app.city}, ${app.state} ${app.zip}`} />
-        <Detail label="Customer ID" value={app.customerId || "-"} />
-        <Detail label="Identity" value={`${app.idType} - ${app.idNumber}`} />
+        <Detail label="Email" value={profile.email} />
+        <Detail label="Mobile" value={profile.mobile} />
+        <Detail label="Address" value={`${profile.address}, ${profile.city}, ${profile.state} ${profile.zip}`} />
+        <Detail label="Customer ID" value={profile.customerId || "-"} />
+        <Detail label="Identity" value={`${profile.idType} - ${profile.idNumber}`} />
       </div> : <div className="empty">No profile found.</div>}</section>
     </>
   );
@@ -844,7 +1062,7 @@ function FormSelect({ label, options, value = "", onChange, testId, className = 
 
 function ConfirmModal({ modal, onCancel }) {
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" data-testid="confirmation-modal">
+    <div className="modal-backdrop" role="dialog" aria-modal="true" data-testid="confirmation-modal" data-modal={modal.testId || "confirmation"}>
       <div className="modal">
         <h2>{modal.title}</h2>
         <p>{modal.body}</p>
