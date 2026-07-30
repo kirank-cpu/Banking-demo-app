@@ -17,6 +17,7 @@ import {
   RefreshCw,
   ShieldCheck,
   UserRound,
+  X,
   XCircle
 } from "lucide-react";
 import { api, clearAccessCode, setAccessCode } from "./api.js";
@@ -230,7 +231,8 @@ function App() {
     selectedAccountNumber,
     setSelectedAccountNumber,
     notify,
-    setModal
+    setModal,
+    modal
   };
 
   return (
@@ -550,7 +552,8 @@ function Metric({ label, value, testId }) {
   return <article className="metric" data-testid={testId}><div className="metric-label">{label}</div><div className="metric-value">{value}</div></article>;
 }
 
-function Dashboard({ user, data, setView, customerAccountNumber }) {
+function Dashboard(props) {
+  const { user, data, setView, customerAccountNumber, setSelectedApplicationId } = props;
   if (user.role === "customer") return <CustomerDashboard user={user} data={data} customerAccountNumber={customerAccountNumber} />;
   if (user.role === "applicant") {
     const mine = data.applications.filter((app) => app.ownerUsername === user.username);
@@ -564,7 +567,8 @@ function Dashboard({ user, data, setView, customerAccountNumber }) {
           <Metric label="Submitted" value={mine.filter((app) => app.status === "Submitted").length} testId="my-submitted-count" />
           <Metric label="Approved" value={mine.filter((app) => app.status === "Approved").length} testId="my-approved-count" />
         </section>
-        <section className="panel stack-top"><h2>My recent applications</h2><ApplicationsTable applications={mine} onOpen={() => setView("myApplications")} /></section>
+        <section className="panel stack-top"><h2>My recent applications</h2><ApplicationsTable applications={mine} onOpen={setSelectedApplicationId} /></section>
+        <ApplicationDetailDialog {...props} />
       </>
     );
   }
@@ -703,7 +707,6 @@ function Applications(props) {
       .filter((app) => !term || `${app.id} ${app.firstName} ${app.lastName} ${app.email} ${app.mobile} ${app.accountNumber}`.toLowerCase().includes(term))
       .sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
   }, [data.applications, filters, onlyMine, user.username]);
-  const selected = data.applications.find((app) => app.id === selectedApplicationId);
 
   return (
     <>
@@ -712,7 +715,7 @@ function Applications(props) {
         <ListFilters filters={filters} setFilters={setFilters} statuses={["All", "Submitted", "Under Review", "Approved", "Rejected", "Needs More Info"]} />
         <ApplicationsTable applications={visible} onOpen={setSelectedApplicationId} />
       </section>
-      {selected && <ApplicationDetail {...props} application={selected} />}
+      <ApplicationDetailDialog {...props} />
     </>
   );
 }
@@ -781,9 +784,9 @@ function ApplicationDetail({ user, apply, application, setModal, setSelectedAppl
   }
 
   return (
-    <section className="panel stack-top" data-testid="application-detail">
-      <div className="toolbar"><h2>{application.id} - {application.firstName} {application.lastName}</h2><Status value={application.status} /></div>
+    <div data-testid="application-detail">
       <div className="detail-list">
+        <Detail label="Status" value={application.status} />
         <Detail label="Email" value={application.email} />
         <Detail label="Mobile" value={application.mobile} />
         <Detail label="DOB" value={application.dob} />
@@ -808,7 +811,7 @@ function ApplicationDetail({ user, apply, application, setModal, setSelectedAppl
           </div>
         </div>
       ) : <p className="muted stack-top">Reviewer comments: {application.reviewerComments || "None"}</p>}
-    </section>
+    </div>
   );
 }
 
@@ -1043,7 +1046,6 @@ function ClosureRequests(props) {
       .filter((request) => !term || `${request.id} ${request.accountNumber} ${request.customerId} ${request.accountHolder} ${request.reason}`.toLowerCase().includes(term))
       .sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
   }, [data.closureRequests, filters]);
-  const selected = data.closureRequests.find((request) => request.id === selectedClosureId);
 
   return (
     <>
@@ -1052,7 +1054,7 @@ function ClosureRequests(props) {
         <ListFilters filters={filters} setFilters={setFilters} statuses={["All", "Submitted", "Under Review", "Approved", "Rejected", "Needs More Info"]} testId="closure-status-filter" />
         <ClosureRequestsTable requests={visible} onOpen={setSelectedClosureId} />
       </section>
-      {selected && <ClosureRequestDetail {...props} request={selected} />}
+      <ClosureRequestDetailDialog {...props} />
     </>
   );
 }
@@ -1113,8 +1115,7 @@ function ClosureRequestDetail({ user, data, apply, request, setModal, setSelecte
   }
 
   return (
-    <section className="panel stack-top" data-testid="closure-detail">
-      <div className="toolbar"><h2>{request.id} - account {request.accountNumber}</h2><Status value={request.status} /></div>
+    <div data-testid="closure-detail">
       <div className="detail-list">
         <Detail label="Account holder" value={request.accountHolder || "-"} />
         <Detail label="Customer ID" value={request.customerId || "-"} />
@@ -1142,7 +1143,7 @@ function ClosureRequestDetail({ user, data, apply, request, setModal, setSelecte
           </div>
         </div>
       ) : <p className="muted stack-top">Reviewer comments: {request.reviewerComments || "None"}</p>}
-    </section>
+    </div>
   );
 }
 
@@ -1329,6 +1330,87 @@ function FormInput({ label, type = "text", value = "", onChange, testId, classNa
 
 function FormSelect({ label, options, value = "", onChange, testId, className = "", required = false }) {
   return <div className={`field ${className}`}><label>{label}{required ? <span className="required-marker">*</span> : null}</label><select value={value || ""} data-testid={testId} onChange={(e) => onChange(e.target.value)} required={required}><option value="">Select</option>{options.map((option) => <option key={option}>{option}</option>)}</select></div>;
+}
+
+/**
+ * Popup shell for record details. `blocked` is set while a confirmation dialog
+ * sits on top, so Escape closes that one first rather than yanking this away
+ * from underneath it.
+ */
+function DetailDialog({ title, subtitle, status, onClose, blocked, testId, children }) {
+  useEffect(() => {
+    function onKeyDown(event) {
+      if (event.key === "Escape" && !blocked) onClose();
+    }
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onClose, blocked]);
+
+  return (
+    <div
+      className="modal-backdrop detail-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      data-testid={testId}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !blocked) onClose();
+      }}
+    >
+      <div className="modal modal-wide">
+        <header className="modal-head">
+          <div>
+            <h2>{title}</h2>
+            {subtitle ? <p className="muted">{subtitle}</p> : null}
+          </div>
+          <div className="modal-head-actions">
+            {status}
+            <button type="button" className="icon-button" data-testid="close-detail" aria-label="Close details" onClick={onClose}><X size={18} /></button>
+          </div>
+        </header>
+        <div className="modal-body">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function ApplicationDetailDialog(props) {
+  const application = props.data.applications.find((item) => item.id === props.selectedApplicationId);
+  if (!application) return null;
+  return (
+    <DetailDialog
+      testId="application-detail-dialog"
+      title={`${application.id} - ${application.firstName} ${application.lastName}`}
+      subtitle={`${application.accountType} account request - ${application.branch} branch`}
+      status={<Status value={application.status} />}
+      blocked={Boolean(props.modal)}
+      onClose={() => props.setSelectedApplicationId(null)}
+    >
+      <ApplicationDetail {...props} application={application} />
+    </DetailDialog>
+  );
+}
+
+function ClosureRequestDetailDialog(props) {
+  const request = props.data.closureRequests.find((item) => item.id === props.selectedClosureId);
+  if (!request) return null;
+  return (
+    <DetailDialog
+      testId="closure-detail-dialog"
+      title={`${request.id} - account ${request.accountNumber}`}
+      subtitle={`Closure requested by ${request.accountHolder || request.customerId || "account holder"}`}
+      status={<Status value={request.status} />}
+      blocked={Boolean(props.modal)}
+      onClose={() => props.setSelectedClosureId(null)}
+    >
+      <ClosureRequestDetail {...props} request={request} />
+    </DetailDialog>
+  );
 }
 
 function ConfirmModal({ modal, onCancel }) {
