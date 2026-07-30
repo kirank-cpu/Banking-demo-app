@@ -4,9 +4,24 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { addAudit, db, describeDatabase, ensureReady, insertRow, isRemote, nextReference, query, queryOne, readState, resetDatabase, updateRow } from "./db.js";
 import { debitTypes, openClosureStatuses, transactionTypes, validateApplication, validateClosureRequest } from "./rules.js";
 
-export const app = express();
-app.use(cors());
-app.use(express.json());
+/**
+ * Routes live on a Router, mounted rather than hard-coded at /api, so the same
+ * definitions work whether the platform hands us the original `/api/...` URL or
+ * a version with the prefix already stripped.
+ */
+export const apiRouter = express.Router();
+
+export function createApiApp({ mountAtRoot = false } = {}) {
+  const instance = express();
+  instance.use(cors());
+  instance.use(express.json());
+  instance.use("/api", apiRouter);
+  // Belt and braces for serverless routing, where only /api traffic ever arrives.
+  if (mountAtRoot) instance.use("/", apiRouter);
+  return instance;
+}
+
+export const app = createApiApp();
 
 // Shared team gate. Set BANKING_ACCESS_CODE to require a code; leave it unset and
 // the API stays open, so local development and the test suites need no setup.
@@ -25,7 +40,7 @@ function matchesAccessCode(supplied) {
   return timingSafeEqual(createHash("sha256").update(value).digest(), createHash("sha256").update(accessCode).digest());
 }
 
-app.use("/api", (request, response, next) => {
+apiRouter.use((request, response, next) => {
   if (!accessCode) return next();
   if (request.path === "/health") return next(); // public liveness probe, reveals nothing
   if (matchesAccessCode(request.get("x-access-code"))) return next();
@@ -72,7 +87,7 @@ async function inTransaction(work) {
   }
 }
 
-app.get("/api/health", async (request, response, next) => {
+apiRouter.get("/health", async (request, response, next) => {
   // Reachable without the code, but only says whether the service is up and gated.
   if (accessCode && !matchesAccessCode(request.get("x-access-code"))) return response.json({ ok: true, protected: true });
   try {
@@ -83,14 +98,14 @@ app.get("/api/health", async (request, response, next) => {
   }
 });
 
-app.get("/api/state", handle(() => ({})));
+apiRouter.get("/state", handle(() => ({})));
 
-app.post("/api/reset", handle(async () => {
+apiRouter.post("/reset", handle(async () => {
   await resetDatabase();
   return { message: "Demo data reset." };
 }));
 
-app.post("/api/applications", handle(async (request) => {
+apiRouter.post("/applications", handle(async (request) => {
   const { form = {}, actor = {} } = request.body || {};
   const applications = await query(db, "SELECT email, nationalId FROM applications");
   const problem = validateApplication(form, applications);
@@ -121,7 +136,7 @@ app.post("/api/applications", handle(async (request) => {
   });
 }));
 
-app.post("/api/applications/:id/decision", handle(async (request) => {
+apiRouter.post("/applications/:id/decision", handle(async (request) => {
   const { decision, comments = "", reviewer = "" } = request.body || {};
   if (!["Approved", "Rejected", "Needs More Info", "Under Review"].includes(decision)) throw new RequestError("Unknown decision.");
   if (["Rejected", "Needs More Info"].includes(decision) && !String(comments).trim()) throw new RequestError("Comments are required for this decision.");
@@ -168,7 +183,7 @@ app.post("/api/applications/:id/decision", handle(async (request) => {
   });
 }));
 
-app.post("/api/transactions", handle(async (request) => {
+apiRouter.post("/transactions", handle(async (request) => {
   const { accountNumber, type, amount, description = "", createdBy = "Teller" } = request.body || {};
   if (!type || !transactionTypes.includes(type)) throw new RequestError("Select a transaction type.");
   const value = Number(amount);
@@ -209,7 +224,7 @@ app.post("/api/transactions", handle(async (request) => {
   });
 }));
 
-app.post("/api/closure-requests", handle(async (request) => {
+apiRouter.post("/closure-requests", handle(async (request) => {
   const { form = {}, actor = {} } = request.body || {};
   const now = new Date().toISOString();
 
@@ -243,7 +258,7 @@ app.post("/api/closure-requests", handle(async (request) => {
   });
 }));
 
-app.post("/api/closure-requests/:id/decision", handle(async (request) => {
+apiRouter.post("/closure-requests/:id/decision", handle(async (request) => {
   const { decision, comments = "", reviewer = "" } = request.body || {};
   if (!["Approved", "Rejected", "Needs More Info", "Under Review"].includes(decision)) throw new RequestError("Unknown decision.");
   if (["Rejected", "Needs More Info"].includes(decision) && !String(comments).trim()) throw new RequestError("Comments are required for this decision.");

@@ -40,8 +40,9 @@ BANKING_API_URL=http://192.168.1.20:4000 npm run dev
 
 ## Deploying to Vercel
 
-The frontend and the API deploy together: `api/[...path].js` serves the same Express app
-as a serverless function, and `vercel.json` wires it up. The only thing that can't live on
+The frontend and the API deploy together: `api/index.js` serves the same Express app
+as a serverless function, and the `rewrites` block in `vercel.json` sends every `/api/*`
+request to it. The only thing that can't live on
 Vercel is the database file - serverless instances have no persistent, shared disk - so
 production uses **Turso**, which is hosted SQLite. Same SQL, same code path.
 
